@@ -3,7 +3,7 @@ Bulletin board related objects and functions.
 """
 from network import NetworkClient, Network, NetworkMessage
 
-class BBMessage():
+class BBMessage:
     """
     Represents a bulletin message.
     """
@@ -12,6 +12,10 @@ class BBMessage():
 
 
 class BBWrite(NetworkMessage):
+    @staticmethod
+    def with_content(content):
+        return BBWrite(BBMessage(content))
+
     def __init__(self, msg: BBMessage):
         self.__msg = msg
     
@@ -45,16 +49,16 @@ class BulletinBoard(NetworkClient):
         network.register(self)
         self.__state: list[BBMessage] = []
     
-    def on_receive(self, message: NetworkMessage, src: NetworkClient):
+    def  on_receive(self, message: NetworkMessage, src: NetworkClient = None):
         if isinstance(message, BBWrite):
-            self.__write(message.content)
+            self.__write(message.msg.content)
         
         if isinstance(message, BBReadQuery):
             self.__network.send(BBReadResult(self.__read()), self, src)
 
-    def __write(message: BBMessage):
+    def __write(self, message: BBMessage):
         self.__state.append(message)
     
-    def __read() -> list[BBMessage]:
+    def __read(self) -> list[BBMessage]:
         return self.__state.copy()
 
