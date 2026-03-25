@@ -1,6 +1,13 @@
 """
 Bulletin board related objects and functions.
 """
+
+# Discussion: Should BB be a singleton?
+# it actually depends on what the BulletinBoard class represents: it is either the "internal" P_BB append-only msglist
+# list, in which case it should be a singleton. Or a BulletinBoard instance represents a BB server.
+# In the latter case, voters should be able to (and, in fact, must) specify in which BB they vote.
+# TODO choose.
+
 from network import NetworkClient, Network, NetworkMessage
 
 class BBMessage:
