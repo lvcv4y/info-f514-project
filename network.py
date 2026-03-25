@@ -104,7 +104,7 @@ class Network:
         self.__running = False  # Finished routing for now.
     
 
-    def send(self, message: NetworkMessage, src: NetworkClient, dst: NetworkClient | None):
+    def send(self, message: NetworkMessage, src: NetworkClient | None, dst: NetworkClient | None):
         """
         Send packet (add packet to inner network queue).
 

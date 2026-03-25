@@ -3,60 +3,163 @@ Cryptography functions utils.
 
 TODO:
  - ZKP creation and verifications
+
+ Note: for now, signing and ciphering are not compatible: only clear content can be signed, and signed content
+   cannot be ciphered.
+"""
+from abc import ABC
+
+"""
+Content classes. Used to abstract the formats of data from their usage
 """
 
-def generate_key():  # take G, p, g?
+class CryptoContent(ABC):
     """
-    Generate (a pair of?) ElGamal public-private keys.
+    General class, represents any cryptographic content data (signature, clear content, ciphered content).
+      The child classes will be used by the key classes to perform data conversion and signature.
     """
-    # TODO implement
-    # Note: Do not use ElectionAuthority. Parameters must be given in argument if needed,
-    # they are posted on the Network
-    return None, None
+    def __init__(self, content):
+        self.__inner = content
+
+    @property
+    def inner(self):
+        return self.__inner
 
 
-def cipher(pubkey, content):
+class ClearContent(CryptoContent):
     """
-    Given an ElGamal public key, cipher the given content
+    Represent some data in clear. Bridge between types and ciphered content.
     """
-    # TODO implement
-    # Note: it is possible to force content to be bytes if needed.
-    #   JSON (de)serialization and string encoding could do the trick.
-    return None
+    def format(self):
+        """
+        Format the given content to an encryption-ready one (likely from any to bytes).
+        """
+        # it is (very) likely that encryption methods need a specific format, like bytes, to work.
+        #  this method is responsible for this conversion
+        # Note: JSON (de)serialization and string encoding could do be necessary.
+        # TODO implement
+        return None
 
 
-def decipher(private_key, content):
+class CipheredContent(CryptoContent):
     """
-    Given an ElGamal private key, decipher the given content
+    Represents ciphered content.
     """
-    # TODO implement
-    # Note: it is possible to force content to be bytes if needed.
-    #   JSON (de)serialization and string encoding could do the trick.
-    return None
+    pass
 
 
-def sign(private_key, content):
+class Signature(CryptoContent):
     """
-    Given an ElGamal private key, returns the authentication signature of the given content
+    Represents a signature.
     """
-    # TODO implement
-    # Note: it is possible to force content to be bytes if needed.
-    return None
+    pass
 
 
-def verify_signature(pubkey, signature, content) -> bool:
+class SignedContent(CryptoContent):
+    def __init__(self, content: ClearContent, signature: Signature):
+        super().__init__(content)
+        self.__signature = signature
+
+    @property
+    def signature(self):
+        return self.__signature
+
+"""
+Key classes
+"""
+
+class AsymmetricCryptographicKey(ABC):
     """
-    Given an ElGamal public key, returns True if the given signature is
-        an actual signature of the given content. Returns False otherwise.
+    Abstract class that represents a pair of crypto keys.
     """
-    # TODO implement
-    # Note: it is possible to force content to be bytes if needed.
-    return False
+    def __init__(self, pub, private):
+        # This constructor should not be used. Keys object should be generated through child class methods.
+        self.__pub = pub
+        self.__private = private
+
+    @property
+    def public(self):
+        return self.__pub
+
+    @property
+    def private(self):
+        if self.__private is None:
+            raise ValueError("The current key is not a private key.")
+        return self.__private
+
+    def is_private(self):
+        return self.__private is not None
+
+    def as_public(self):
+        return self.__class__(self.__pub, None)
 
 
-def get_pubkey_product(pubkeys: list):
+class VoteEncryptionKeys(AsymmetricCryptographicKey):
     """
-    Given a list of ElGamal public keys on a same group G, returns their product (modulo |G|).
-        Required for bulletin distributed deciphering.
+    ElGamal key pair, used for ballot encryption.
     """
-    return None
+    @staticmethod
+    def generate_from(*crypto_params) -> VoteEncryptionKeys:
+        """
+        Generate a pair of ElGamal public-private keys.
+        """
+        # TODO implement
+        # Note: Do not use ElectionAuthority. Parameters must be given in argument if needed,
+        # they are posted on the Network
+        return VoteEncryptionKeys(None, None)
+
+    def product(self, k1: VoteEncryptionKeys, k2: VoteEncryptionKeys) -> VoteEncryptionKeys:
+        """
+        Compute the product of two public keys.
+        """
+        # TODO implement
+        return None
+
+    def cipher(self, content: ClearContent) -> CipheredContent:
+        """
+        Cipher the given content.
+        """
+        # TODO implement
+        return None
+
+    def decipher(self, ciphered: CipheredContent) -> ClearContent:
+        """
+        Cipher the given content. The current key must be a private key.
+        """
+        # TODO implement
+        return None
+
+
+class SigningKeys(AsymmetricCryptographicKey):
+    """
+    Represents a key-pair used for signature.
+    """
+
+    """
+    Protocols constants.
+    """
+
+    # TODO define signature cryptographic parameters.
+
+    @staticmethod
+    def generate() -> SigningKeys:
+        """
+        Generate a pair of public-private keys for signature. Uses protocol constants.
+        """
+        return SigningKeys(None, None)
+
+    def sign(self, content: ClearContent) -> SignedContent:
+        """
+        Sign the given content. The current key must be a private key.
+        """
+        # TODO implement
+        # Note: it is possible to force content to be bytes if needed.
+        return None
+
+    def verify_signature(self, signed: SignedContent) -> bool:
+        """
+        returns True if the given SignedContent has a right signature. Returns False otherwise.
+        """
+        # TODO implement
+        # Note: it is possible to force content to be bytes if needed.
+        return False
