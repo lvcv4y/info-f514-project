@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 
 
-class NetworkPacket():
+class NetworkPacket:
     """
     High-level Network Message wrapper. This represents how the network "sees" things.
     The "src" and "dst" attributes allow for query/answer requests,
@@ -94,7 +94,7 @@ class Network:
                 continue
 
             if pkt.dst is None:  # Broadcast
-                for client in self.__clients:
+                for client in self.__clients:  # Maybe restricts to BB?
                     client.on_receive(pkt.message, pkt.src)
             elif pkt.dst in self.__clients:  # Registered destination
                 # This condition is weird because it is not an actual (async) network.
@@ -104,7 +104,7 @@ class Network:
         self.__running = False  # Finished routing for now.
     
 
-    def send(self, message: NetworkMessage, src: NetworkClient, dst: NetworkClient):
+    def send(self, message: NetworkMessage, src: NetworkClient, dst: NetworkClient | None):
         """
         Send packet (add packet to inner network queue).
 
