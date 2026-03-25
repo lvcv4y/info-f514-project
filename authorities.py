@@ -36,8 +36,7 @@ class ElectionAuthority:
         self.__vote_validator = vote_validator if vote_validator is not None else lambda *_: True
 
         self.__election_started = False
-
-        pass
+        # TODO register self to PKI.
 
     def register_voter(self, voter: "Voter"):  # Maybe passes the pubkey?
         if self.__election_started:  # No voter added during the election.
@@ -45,8 +44,17 @@ class ElectionAuthority:
 
         if voter not in self.__voters:
             self.__voters.append(voter)
-            # TODO add voter to pki. Ensure it is known.
-            # self.pki.add(...)
+
+    def is_valid_voter(self, voter: "Voter"):
+        """
+        Determines whether the voter is legit: ie if the entity given has the right to vote in this election.
+        """
+        return voter in self.__voters
+
+
+    def is_vote_valid(self, vote: Vote):
+        # Normally, voters choose a vote in a given set. We'll mimic that with a function.
+        return self.__vote_validator(vote)
 
     def register_tallier(self, tallier: "Tallier"):  # Maybe passes the pubkey?
         if self.__election_started:  # No tallier added during the election.
@@ -54,18 +62,19 @@ class ElectionAuthority:
 
         if tallier not in self.__voters:
             self.__talliers.append(tallier)
-            # TODO add voter to pki. Ensure it is known.
-            # self.pki.add(...)
-
-    def is_vote_valid(self, vote: Vote):
-        # Normally, voters choose a vote in a given set. We'll mimic that with a functions.
-        return self.__vote_validator(vote)
 
     def start_election(self):
         self.__election_started = True
         # TODO choose cryptographic group G of size p
-        # Maybe no need to "choose" talliers and voters, so no need to post em too?
-        # TODO post start message with parameters
+
+        # The protocol given states that the election authority also post:
+        #  - voters, with their id and their pubkey ;
+        #  - talliers, same ;
+        #  - the vote space.
+
+        # Maybe post them too? Instead of posting the vote space, post self.__vote_validator?
+
+        # TODO post start message with parameters, with signature
 
     def end_election(self):
         # TODO post end message. Maybe start talliers?
