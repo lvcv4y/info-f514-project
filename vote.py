@@ -10,7 +10,6 @@ from typing import Callable
 class Vote:
     def __init__(self, inner_tuple):
         self.__inner =  inner_tuple
-        # TODO make sure the vote is valid (using ElectionAuthority).
     
     def unwrap(self):
         return self.__inner
@@ -60,8 +59,9 @@ class Voter(NetworkClient):
         return self.__vote if self.__vote is not None else self.__vote_func(self)
 
     def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
-        if src is not self:  # ignore what is not targeted to me
-            return
+        # TODO implement
+        # BulletinBoard read, ElectionAuthority initial parameters, etc
+        pass
     
     def post_vote(self):
 
