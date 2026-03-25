@@ -5,9 +5,9 @@ TODO:
  - ZKP creation and verifications
 """
 
-def generate_key():  # take G, p, g?
+def generate_vote_encryption_keys(*crypto_params):  # take G, p, g?
     """
-    Generate (a pair of?) ElGamal public-private keys.
+    Generate (a pair of?) ElGamal public-private keys. Used for ballot encryption.
     """
     # TODO implement
     # Note: Do not use ElectionAuthority. Parameters must be given in argument if needed,
@@ -32,6 +32,18 @@ def decipher(private_key, content):
     # TODO implement
     # Note: it is possible to force content to be bytes if needed.
     #   JSON (de)serialization and string encoding could do the trick.
+    return None
+
+
+"""
+Protocols constants.
+"""
+# TODO define signature cryptographic parameters.
+
+def generate_sign_keys():
+    """
+    Returns (a pair of?) public-private keys used for signature. Uses protocol constants.
+    """
     return None
 
 
