@@ -31,6 +31,7 @@ class StartElectionMessage(CryptoContent):
         return bytes()
 
     def __init__(self, crypto_parameters, voters, talliers, vote_validator):
+        super().__init__()
         self.__crypto_parameters = crypto_parameters
         self.__voters = voters
         self.__talliers = talliers
