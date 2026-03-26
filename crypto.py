@@ -16,7 +16,7 @@ from network import NetworkMessage
 Content classes. Used to abstract the formats of data from their usage
 """
 
-class CryptoContent(ABC):
+class CryptoContent(ABC, NetworkMessage):
     """
     General interface, represents any data that might be used for cryptography (signature, clear content, ciphered content).
       The child classes will be used by the key classes to perform data conversion and signature.
@@ -66,7 +66,7 @@ class ClearContent(ABC, CryptoContent):
         pass
 
 
-class CipheredContent(BytesContent, NetworkMessage):
+class CipheredContent(BytesContent):
     """
     Represents ciphered content.
     """
