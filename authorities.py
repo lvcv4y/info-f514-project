@@ -24,11 +24,15 @@ class StartElectionMessage(CryptoContent):
     The "valid vote set" is a function that, given a vote, evaluates to True if the vote is valid, and False otherwise.
     """
 
-    # TODO for now, crypto_parameters and vote_validator are not part of the signature.
     @override
     def as_bytes(self) -> bytes:
-        # TODO implement
-        return bytes()
+        # TODO encode crypto_parameters and vote_validator (somehow)
+        crypto_params = bytes()
+        vote_validator = bytes()
+        voters = b''.join(i.encode('ascii') for i in self.__voters)
+        talliers = b''.join(i.encode('ascii') for i in self.__talliers)
+
+        return crypto_params + vote_validator + voters + talliers
 
     def __init__(self, crypto_parameters, voters, talliers, vote_validator):
         super().__init__()
@@ -123,7 +127,12 @@ class ElectionAuthority:
         self.__election_started = True
         # TODO choose cryptographic group G of size p with generator g
         crypto_params = ()
-        message = StartElectionMessage(crypto_params, self.__voters, self.__talliers, self.__vote_validator)
+        message = StartElectionMessage(
+            crypto_params,
+            [v.id for v in self.__voters],
+            [t.id for t in self.__talliers],
+            self.__vote_validator
+        )
 
         signed = self.__keys.sign(message)
 
