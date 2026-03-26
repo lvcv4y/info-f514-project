@@ -6,7 +6,7 @@ Note: Voters actually have a trusted additional channel to report errors / detec
 """
 from typing import Callable, override
 
-from network import NetworkMessage, Network
+from network import Network
 from vote import Voter, Vote
 from tallier import Tallier
 from crypto import CryptoContent, SigningKeys
@@ -15,7 +15,7 @@ from crypto import CryptoContent, SigningKeys
 Election Authority Messages
 """
 
-class StartElectionMessage(NetworkMessage, CryptoContent):
+class StartElectionMessage(CryptoContent):
     """
     Initial message to start the election. contains cryptographic bases, valid voters, talliers, a "valid vote set"
      and a signature to certify it comes from the election authority.
@@ -30,7 +30,7 @@ class StartElectionMessage(NetworkMessage, CryptoContent):
         # TODO implement
         return bytes()
 
-    def __init__(self, crypto_parameters, voters, talliers, vote_validator, signature):
+    def __init__(self, crypto_parameters, voters, talliers, vote_validator):
         self.__crypto_parameters = crypto_parameters
         self.__voters = voters
         self.__talliers = talliers
@@ -53,9 +53,12 @@ class StartElectionMessage(NetworkMessage, CryptoContent):
         return self.vote_validator
 
 
-class StopElectionMessage(NetworkMessage):
+class StopElectionMessage(CryptoContent):
     """Stop Election Message class. Empty class."""
-    pass
+    @override
+    def as_bytes(self):
+        return bytes()  # Maybe add something like the hash of the current instance?
+
 
 class ElectionAuthority:
     """
@@ -129,9 +132,12 @@ class ElectionAuthority:
         )
 
     def end_election(self):
-        # TODO post end message. Maybe start talliers?
-        pass
-
+        self.network.send(
+            self.__keys.sign(StopElectionMessage()),
+            None,  # ElectionAuthority does not need to listen anything ; at least for now.
+            None,  # Broadcast
+        )
+        # TODO Maybe start talliers?
 
 
 class PKI:
