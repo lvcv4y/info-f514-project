@@ -78,7 +78,6 @@ class ElectionAuthority:
         return cls.instance
 
     def __init__(self, vote_validator: Callable[[Vote], bool] = None, network: "Network" = None):
-        # TODO init. Sets most fields to None though: most of them will be chosen at start_election.
         self.__voters = []
         self.__talliers = []
         self.pki = PKI()
@@ -87,7 +86,12 @@ class ElectionAuthority:
         self.__vote_validator = vote_validator if vote_validator is not None else lambda *_: True
 
         self.__election_started = False
-        self.__keys = None
+        self.__keys = SigningKeys.generate()
+        PKI().add(self.id, self.__keys.as_public())
+
+    @property
+    def id(self):
+        return "ELECTION_AUTHORITY"
 
     def register_voter(self, voter: "Voter"):  # Maybe passes the pubkey?
         if self.__election_started:  # No voter added during the election.
@@ -120,9 +124,6 @@ class ElectionAuthority:
         crypto_params = ()
         message = StartElectionMessage(crypto_params, self.__voters, self.__talliers, self.__vote_validator)
 
-        self.__keys = SigningKeys.generate()
-        # TODO register self to PKI.
-
         signed = self.__keys.sign(message)
 
         self.network.send(
@@ -137,7 +138,6 @@ class ElectionAuthority:
             None,  # ElectionAuthority does not need to listen anything ; at least for now.
             None,  # Broadcast
         )
-        # TODO Maybe start talliers?
 
 
 class PKI:
@@ -154,22 +154,27 @@ class PKI:
         return cls.instance
 
     def __init__(self):
-        # TODO init. Use dict. Double dict to have O(1) in both gets?
-        pass
+        self.__key_dict: dict[str, SigningKeys] = dict()
 
-    def get_client_from_key(self, key):
-        # TODO implement
-        pass
+    def get_client_from_key(self, key: SigningKeys) -> str | None:
+        for cid, ck in self.__key_dict.items():
+            if ck.public == key.public:
+                return cid
 
-    def get_key_from_client(self, client):
-        # TODO implement
-        pass
+        return None
 
-    def __add(self, client, key):
-        # TODO implement
+    def get_key_from_client(self, client_id: str) -> SigningKeys | None:
+        return self.__key_dict.get(client_id, None)
+
+    def __add(self, client_id: str, key: SigningKeys):
+        if client_id in self.__key_dict:
+            raise KeyError("This id given was already registered in the PKI.")
+
+        if client_id is not str or not isinstance(key, SigningKeys):
+            raise AttributeError("Arguments given do not have the right types.")
+
+        self.__key_dict[client_id] = key
+
+    def add(self, client_id: str, key: SigningKeys, nizkp = None):
         # TODO check ZKP to ensure client has the key?
-        pass
-
-    def __remove_by_key(self, key):
-        # TODO implement
-        pass
+        self.__add(client_id, key)
