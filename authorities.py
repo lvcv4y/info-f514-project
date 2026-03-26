@@ -4,11 +4,58 @@ Those actors are the only thing the voters trusts.
 
 Note: Voters actually have a trusted additional channel to report errors / detected frauds.
 """
-from typing import Callable
+from typing import Callable, override
 
+from network import NetworkMessage, Network
 from vote import Voter, Vote
 from tallier import Tallier
+from crypto import CryptoContent, SigningKeys
 
+"""
+Election Authority Messages
+"""
+
+class StartElectionMessage(NetworkMessage, CryptoContent):
+    """
+    Initial message to start the election. contains cryptographic bases, valid voters, talliers, a "valid vote set"
+     and a signature to certify it comes from the election authority.
+
+    voters and talliers fields are a list of tuple as: (id, pubkey), where id is their UUID, as string.
+    The "valid vote set" is a function that, given a vote, evaluates to True if the vote is valid, and False otherwise.
+    """
+
+    # TODO for now, crypto_parameters and vote_validator are not part of the signature.
+    @override
+    def as_bytes(self) -> bytes:
+        # TODO implement
+        return bytes()
+
+    def __init__(self, crypto_parameters, voters, talliers, vote_validator, signature):
+        self.__crypto_parameters = crypto_parameters
+        self.__voters = voters
+        self.__talliers = talliers
+        self.__vote_validator = vote_validator
+
+    @property
+    def crypto_parameters(self):
+        return self.__crypto_parameters
+
+    @property
+    def voters(self):
+        return self.__voters
+
+    @property
+    def talliers(self):
+        return self.__talliers
+
+    @property
+    def vote_validator(self):
+        return self.vote_validator
+
+
+class StopElectionMessage(NetworkMessage):
+    """Stop Election Message class. Empty class."""
+    pass
 
 class ElectionAuthority:
     """
@@ -27,16 +74,17 @@ class ElectionAuthority:
             cls.instance = super().__new__(cls)
         return cls.instance
 
-    def __init__(self, vote_validator: Callable[[Vote], bool] = None):
+    def __init__(self, vote_validator: Callable[[Vote], bool] = None, network: "Network" = None):
         # TODO init. Sets most fields to None though: most of them will be chosen at start_election.
         self.__voters = []
         self.__talliers = []
         self.pki = PKI()
+        self.network = network if network is not None else Network()
 
         self.__vote_validator = vote_validator if vote_validator is not None else lambda *_: True
 
         self.__election_started = False
-        # TODO register self to PKI.
+        self.__keys = None
 
     def register_voter(self, voter: "Voter"):  # Maybe passes the pubkey?
         if self.__election_started:  # No voter added during the election.
@@ -65,16 +113,20 @@ class ElectionAuthority:
 
     def start_election(self):
         self.__election_started = True
-        # TODO choose cryptographic group G of size p
+        # TODO choose cryptographic group G of size p with generator g
+        crypto_params = ()
+        message = StartElectionMessage(crypto_params, self.__voters, self.__talliers, self.__vote_validator)
 
-        # The protocol given states that the election authority also post:
-        #  - voters, with their id and their pubkey ;
-        #  - talliers, same ;
-        #  - the vote space.
+        self.__keys = SigningKeys.generate()
+        # TODO register self to PKI.
 
-        # Maybe post them too? Instead of posting the vote space, post self.__vote_validator?
+        signed = self.__keys.sign(message)
 
-        # TODO post start message with parameters, with signature
+        self.network.send(
+            signed,
+            None, # ElectionAuthority does not need to listen anything ; at least for now.
+            None, # Broadcast
+        )
 
     def end_election(self):
         # TODO post end message. Maybe start talliers?
