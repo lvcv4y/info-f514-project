@@ -2,9 +2,12 @@
 Classes to represent voters and their votes.
 """
 from uuid import uuid4
+from typing import Callable
+
+from crypto import SigningKeys
 from network import NetworkClient, Network, NetworkMessage
 from board import BBWrite
-from typing import Callable
+from authorities import PKI
 
 
 class Vote:
@@ -27,17 +30,19 @@ class Voter(NetworkClient):
 
     def __init__(self, name: str = None, vote: Vote = None, vote_func: Callable[["Voter"], Vote] = None, network: Network = None):
         assert vote is not None or vote_func is not None, "Each voter must have either a (static) vote or a voting function."
+        super().__init__()
         self.__network = Network() if network is None else network
         self.name = name
 
         self.__vote = vote
         self.__vote_func = vote_func
 
-        # ID, immutable, debug purposes
         self.__id = str(uuid4())
 
-        # TODO generate cryptographic keys
-        # TODO add self to PKI
+        # Signing keys
+        self.__keys = SigningKeys.generate()
+        PKI().add(self.__id, self.__keys.as_public())
+
         self.__last_posted_vote = None
 
     @property
