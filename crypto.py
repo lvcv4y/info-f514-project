@@ -10,14 +10,17 @@ TODO:
 from abc import ABC, abstractmethod
 from typing import override
 
+from network import NetworkMessage
+
 """
 Content classes. Used to abstract the formats of data from their usage
 """
 
 class CryptoContent(ABC):
     """
-    General class, represents any cryptographic content data (signature, clear content, ciphered content).
+    General interface, represents any data that might be used for cryptography (signature, clear content, ciphered content).
       The child classes will be used by the key classes to perform data conversion and signature.
+      Can be extended to allow a given class to be signed.
     """
     @abstractmethod
     def as_bytes(self) -> bytes:
@@ -63,7 +66,7 @@ class ClearContent(ABC, CryptoContent):
         pass
 
 
-class CipheredContent(BytesContent):
+class CipheredContent(BytesContent, NetworkMessage):
     """
     Represents ciphered content.
     """
@@ -85,8 +88,8 @@ class Signature(BytesContent):
     pass
 
 
-class SignedContent:
-    def __init__(self, data: ClearContent | BytesContent, signature: Signature):
+class SignedContent(NetworkMessage):
+    def __init__(self, data: CryptoContent, signature: Signature):
         self.__data = data
         self.__signature = signature
 
@@ -185,7 +188,7 @@ class SigningKeys(AsymmetricCryptographicKey):
         """
         return SigningKeys(None, None)
 
-    def sign(self, content: ClearContent) -> SignedContent:
+    def sign(self, content: CryptoContent) -> SignedContent:
         """
         Sign the given content. The current key must be a private key.
         """
