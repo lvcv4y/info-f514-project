@@ -2,22 +2,39 @@
 Classes to represent voters and their votes.
 """
 from uuid import uuid4
-from typing import Callable
+from typing import Callable, override
 
-from crypto import SigningKeys
+from crypto import SigningKeys, CryptoContent, CipheredContent
 from network import NetworkClient, Network, NetworkMessage
 from board import BBWrite
 from authorities import PKI
 
 
-class Vote:
+class Vote(CryptoContent):
     def __init__(self, inner_tuple):
         self.__inner =  inner_tuple
     
     def unwrap(self):
         return self.__inner
+
+    @override
+    def as_bytes(self) -> bytes:
+        # TODO implement
+        return bytes()
     
     # Maybe add a cipher method here?
+
+class Ballot(CryptoContent):
+    def __init__(self, voter_id: str, vote_cipher: CipheredContent, nizkp = None):
+        self.voter_id = voter_id
+        self.vote_cipher = vote_cipher
+        self.nizkp = nizkp
+
+    @override
+    def as_bytes(self):
+        nizkp = bytes()  # TODO implement
+        return self.voter_id.encode('ascii') + self.vote_cipher.as_bytes() + nizkp
+
 
 
 # TODO define abstain vote. Extends Vote class, override methods with empty / None return values.
@@ -71,8 +88,14 @@ class Voter(NetworkClient):
     def post_vote(self):
 
         # TODO cipher self.vote
-        # TODO generate NIZKP
-        # TODO generate signature
+
+        vote = self.vote
+        # TODO cipher
+        ciphered_vote = None
+
+        message = self.__keys.sign(ciphered_vote)
+
+        # TODO generate/manage NIZKP
 
         voting_message = None # (cipher, NIZKP, pi^Enc_i)
         self.__network.send(BBWrite.with_content(voting_message), self, None)  # Broadcast to find BulletinBoard
