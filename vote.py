@@ -5,7 +5,8 @@ from uuid import uuid4
 from typing import Callable, override
 from functools import reduce
 
-from crypto import SigningKeys, CryptoContent, CipheredContent, SignedContent, VoteEncryptionKeys
+from crypto import SigningKeys, CryptoContent, CipheredContent, SignedContent, VoteEncryptionKeys, VoteNIZKP, \
+    VoteNIZKPBuildContext
 from network import NetworkClient, Network, NetworkMessage
 from authorities import PKI, ElectionAuthority
 
@@ -27,15 +28,14 @@ class Vote(CryptoContent):
 
 
 class Ballot(CryptoContent):
-    def __init__(self, voter_id: str, vote_cipher: CipheredContent, nizkp = None):
+    def __init__(self, voter_id: str, vote_cipher: CipheredContent, nizkp: VoteNIZKP):
         self.voter_id = voter_id
         self.vote_cipher = vote_cipher
         self.nizkp = nizkp
 
     @override
     def as_bytes(self):
-        nizkp = bytes()  # TODO implement
-        return self.voter_id.encode('ascii') + self.vote_cipher.as_bytes() + nizkp
+        return self.voter_id.encode('ascii') + self.vote_cipher.as_bytes() + self.nizkp.as_bytes()
 
 
 
@@ -126,10 +126,11 @@ class Voter(NetworkClient):
         # Assume symmetric mul. TODO verify that works
         encryption_key: VoteEncryptionKeys = reduce(lambda k1, k2: k2 * k1, self.__talliers_key_dict.values(), None)
 
-        ciphered_vote = encryption_key.cipher(self.vote)
+        vote = self.vote
+        ciphered_vote = encryption_key.cipher(vote)
 
         # TODO nizkp
-        nizkp = None
+        nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(vote, self.__keys))
 
         ballot = Ballot(self.id, ciphered_vote, nizkp)
 
