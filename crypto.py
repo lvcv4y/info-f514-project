@@ -10,6 +10,7 @@ TODO:
 from abc import ABC, abstractmethod
 from typing import override
 
+from exceptions import KeyNotPrivateError
 from network import NetworkMessage
 
 """
@@ -127,7 +128,7 @@ class AsymmetricCryptographicKey(ABC):
     @property
     def private(self):
         if self.__private is None:
-            raise ValueError("The current key is not a private key.")
+            raise KeyNotPrivateError()
         return self.__private
 
     def is_private(self):
@@ -171,12 +172,18 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         """
         Decipher the given content and restore its instance structure. The current key must be a private key.
         """
+        if not self.is_private():
+            raise KeyNotPrivateError()
+
         return ciphered.clazz.from_bytes(self.raw_decipher(ciphered.as_bytes()))
 
     def raw_decipher(self, ciphered: bytes) -> bytes:
         """
         Decipher the given raw bytes, returns the raw deciphered bytes. The current key must be a private key.
         """
+        if not self.is_private():
+            raise KeyNotPrivateError()
+
         # TODO decipher
         deciphered = bytes()
         return deciphered
@@ -204,6 +211,9 @@ class SigningKeys(AsymmetricCryptographicKey):
         """
         Sign the given content. The current key must be a private key.
         """
+        if not self.is_private():
+            raise KeyNotPrivateError()
+
         data = content.as_bytes()
 
         # TODO sign

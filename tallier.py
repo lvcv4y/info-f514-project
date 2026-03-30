@@ -4,6 +4,7 @@ Tallier related objects and methods.
 from uuid import uuid4
 
 from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, CipheredContent
+from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
 from authorities import ElectionAuthority, PKI
 from messages import (StartElectionMessage, StopElectionMessage, TallierPartialKeyMessage,
@@ -124,7 +125,7 @@ class Tallier(NetworkClient):
         if len(valid_votes) != self.__valid_voters:
             # Some votes are missing
             # TODO error message on network?
-            raise ValueError("Missing votes.")
+            raise TallyingError("Missing votes.")
 
         # Aggregate, partial decipher and post.
 
