@@ -10,6 +10,7 @@ from network import NetworkClient, Network, NetworkMessage
 from authorities import PKI, ElectionAuthority
 
 from messages import StartElectionMessage, TallierPartialKeyMessage, BBWrite
+from exceptions import UnfinishedSetupPhaseError
 
 
 class Vote(CryptoContent):
@@ -120,7 +121,7 @@ class Voter(NetworkClient):
     def post_vote(self):
         # Compute total encryption key.
         if self.__valid_talliers_ids is None or len(self.__talliers_key_dict) != len(self.__valid_talliers_ids):
-            raise ValueError("Talliers missing. Either the vote is too early, or a message has been dropped.")
+            raise UnfinishedSetupPhaseError("Talliers missing. Either the vote is too early, or a message has been dropped.")
 
         # Assume symmetric mul. TODO verify that works
         encryption_key: VoteEncryptionKeys = reduce(lambda k1, k2: k2 * k1, self.__talliers_key_dict.values(), None)
