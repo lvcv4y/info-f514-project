@@ -4,66 +4,15 @@ Those actors are the only thing the voters trusts.
 
 Note: Voters actually have a trusted additional channel to report errors / detected frauds.
 """
-from typing import Callable, override
+from typing import Callable, TYPE_CHECKING
 
 from network import Network
-from vote import Voter, Vote
-from tallier import Tallier
-from crypto import CryptoContent, SigningKeys
+from crypto import SigningKeys
+from messages import StartElectionMessage, StopElectionMessage
 
-"""
-Election Authority Messages
-"""
-
-class StartElectionMessage(CryptoContent):
-    """
-    Initial message to start the election. contains cryptographic bases, valid voters, talliers, a "valid vote set"
-     and a signature to certify it comes from the election authority.
-
-    voters and talliers fields are a list of tuple as: (id, pubkey), where id is their UUID, as string.
-    The "valid vote set" is a function that, given a vote, evaluates to True if the vote is valid, and False otherwise.
-    """
-
-    @override
-    def as_bytes(self) -> bytes:
-        # TODO encode crypto_parameters and vote_validator (somehow)
-        crypto_params = bytes()
-        vote_validator = bytes()
-        voters = b''.join(i.encode('ascii') for i in self.__voters)
-        talliers = b''.join(i.encode('ascii') for i in self.__talliers)
-
-        return crypto_params + vote_validator + voters + talliers
-
-    def __init__(self, crypto_parameters, voters, talliers, vote_validator):
-        super().__init__()
-        self.__crypto_parameters = crypto_parameters
-        self.__voters = voters
-        self.__talliers = talliers
-        self.__vote_validator = vote_validator
-
-    @property
-    def crypto_parameters(self):
-        return self.__crypto_parameters
-
-    @property
-    def voters(self):
-        return self.__voters
-
-    @property
-    def talliers(self):
-        return self.__talliers
-
-    @property
-    def vote_validator(self):
-        return self.vote_validator
-
-
-class StopElectionMessage(CryptoContent):
-    """Stop Election Message class. Empty class."""
-    @override
-    def as_bytes(self):
-        return bytes()  # Maybe add something like the hash of the current instance?
-
+if TYPE_CHECKING:
+    from vote import Voter, Vote
+    from tallier import Tallier
 
 class ElectionAuthority:
     """
@@ -82,7 +31,7 @@ class ElectionAuthority:
             cls.instance = super().__new__(cls)
         return cls.instance
 
-    def __init__(self, vote_validator: Callable[[Vote], bool] = None, network: "Network" = None):
+    def __init__(self, vote_validator: Callable[["Vote"], bool] = None, network: "Network" = None):
         self.__voters = []
         self.__talliers = []
         self.pki = PKI()
@@ -112,7 +61,7 @@ class ElectionAuthority:
         return voter in self.__voters
 
 
-    def is_vote_valid(self, vote: Vote):
+    def is_vote_valid(self, vote: "Vote"):
         # Normally, voters choose a vote in a given set. We'll mimic that with a function.
         return self.__vote_validator(vote)
 

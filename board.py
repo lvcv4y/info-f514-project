@@ -9,41 +9,7 @@ Bulletin board related objects and functions.
 # TODO choose.
 
 from network import NetworkClient, Network, NetworkMessage
-
-class BBMessage:
-    """
-    Represents a bulletin message.
-    """
-    def __init__(self, content):
-        self.content = content
-
-
-class BBWrite(NetworkMessage):
-    @staticmethod
-    def with_content(content):
-        return BBWrite(BBMessage(content))
-
-    def __init__(self, msg: BBMessage):
-        self.__msg = msg
-    
-    @property
-    def msg(self):
-        return self.__msg
-
-
-class BBReadQuery(NetworkMessage):
-    pass
-
-
-class BBReadResult(NetworkMessage):
-    def __init__(self, state: list[BBMessage]):
-        self.__state = state
-    
-    @property
-    def state(self):
-        return self.__state
-
-
+from messages import BBMessage, BBWrite, BBReadQuery, BBReadResult
 
 class BulletinBoard(NetworkClient):
     """

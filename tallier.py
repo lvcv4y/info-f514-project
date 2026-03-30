@@ -1,53 +1,14 @@
 """
 Tallier related objects and methods.
 """
-from typing import override
 from uuid import uuid4
 
-from board import BBReadQuery, BBReadResult
-from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, CryptoContent, CipheredContent
+from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, CipheredContent
 from network import NetworkClient, Network, NetworkMessage
-from authorities import PKI, StartElectionMessage, ElectionAuthority, StopElectionMessage
+from authorities import ElectionAuthority, PKI
+from messages import (StartElectionMessage, StopElectionMessage, TallierPartialKeyMessage,
+                      TallierPartialDecryptionMessage, BBReadQuery, BBReadResult)
 from vote import Ballot, Vote
-
-
-class TallierPartialKeyMessage(CryptoContent):
-
-    def __init__(self, tallier_id: str, pub_key: VoteEncryptionKeys, nizkp = None):
-        self.__tallier_id = tallier_id
-        self.__pub_key = pub_key
-        self.__nizkp = nizkp
-
-    @property
-    def tallier_id(self):
-        return self.__tallier_id
-
-    @property
-    def pub_key(self):
-        return self.__pub_key
-
-    @property
-    def nizkp(self):
-        return self.__nizkp
-
-    @override
-    def as_bytes(self) -> bytes:
-        tid = self.__tallier_id.encode('ascii')
-        pkey = self.__pub_key.public  # TODO is it really bytes?
-        nizkp = bytes()  # TODO manage nizkp
-
-        return tid + pkey + nizkp
-
-
-class TallierPartialDecryptionMessage(CryptoContent):
-    def __init__(self, partial_deciphered: CipheredContent, nizkps: list):
-        self.partial_deciphered = partial_deciphered
-        self.nizkps = nizkps
-
-    @override
-    def as_bytes(self) -> bytes:
-        nizkps = bytes()  # TODO manage nizkps
-        return self.partial_deciphered.as_bytes() + nizkps
 
 
 class Tallier(NetworkClient):
