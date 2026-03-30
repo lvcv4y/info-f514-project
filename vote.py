@@ -7,9 +7,9 @@ from functools import reduce
 
 from crypto import SigningKeys, CryptoContent, CipheredContent, SignedContent, VoteEncryptionKeys
 from network import NetworkClient, Network, NetworkMessage
-from board import BBWrite
-from authorities import PKI, StartElectionMessage, ElectionAuthority
-from tallier import TallierPartialKeyMessage
+from authorities import PKI, ElectionAuthority
+
+from messages import StartElectionMessage, TallierPartialKeyMessage, BBWrite
 
 
 class Vote(CryptoContent):
