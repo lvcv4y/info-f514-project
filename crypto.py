@@ -8,10 +8,13 @@ TODO:
    cannot be ciphered. To make it possible, SignedContent must extend ClearContent.
 """
 from abc import ABC, abstractmethod
-from typing import override
+from typing import override, TYPE_CHECKING
 
 from exceptions import KeyNotPrivateError
 from network import NetworkMessage
+
+if TYPE_CHECKING:
+    from vote import Vote
 
 """
 Content classes. Used to abstract the formats of data from their usage
@@ -229,4 +232,94 @@ class SigningKeys(AsymmetricCryptographicKey):
         signature = signed.signature.as_bytes()
 
         # TODO verify signature
+        return False
+
+"""
+NIZKPs abstract classes
+"""
+
+# Verification contexts
+class VerificationContext(ABC):
+    """
+    Record class that represents extra context needed to verify a NIZKP (public key,...).
+    """
+    pass
+
+
+class BuildContext(ABC):
+    """
+    Record class that represents extra context needed to build a NIZKP (private key,...).
+    """
+    pass
+
+
+class NIZKP[B:BuildContext, V: VerificationContext](ClearContent):
+    """
+    Represents a generic Non-Interactive Zero-Knowledge Proof.
+    """
+    @staticmethod
+    @abstractmethod
+    def generate(ctx: B) -> NIZKP[B, V]:
+        """
+        Build the NIZKP given the context. It should build the bytes and pass it to the class constructor.
+          See other implementation for example.
+        """
+        pass
+
+    @abstractmethod
+    def verify(self, ctx: V) -> bool:
+        pass
+
+    def __init__(self, inner_bytes):
+        """
+        Default constructor. Should only be used in generate method.
+        """
+        self.__inner = inner_bytes
+
+    @override
+    def as_bytes(self) -> bytes:
+        return self.__inner
+
+    @override
+    @classmethod
+    def from_bytes(cls, data: bytes):
+        cls(data)
+
+
+"""
+NIZKP implementations
+"""
+
+class PubkeyVerificationContext(VerificationContext):
+    """
+    General verification context that only requires author public key.
+    """
+    def __init__(self, pubkey: SigningKeys):
+        # For now, use signing keys, although AsymmetricCryptographicKey could work.
+        super().__init__()
+        self.key = pubkey
+
+
+# Vote
+
+class VoteNIZKPBuildContext(BuildContext):
+    def __init__(self, vote: "Vote", key: SigningKeys):
+        if not key.is_private():
+            raise KeyNotPrivateError()
+
+        super().__init__()
+        self.vote = vote
+        self.key = key
+
+
+class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, PubkeyVerificationContext]):
+    @staticmethod
+    def generate(ctx: VoteNIZKPBuildContext) -> VoteNIZKP:
+        # TODO implement
+        proof = bytes()
+        return VoteNIZKP(proof)
+
+    @override
+    def verify(self, ctx: PubkeyVerificationContext) -> bool:
+        # TODO implement
         return False
