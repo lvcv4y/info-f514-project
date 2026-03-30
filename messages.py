@@ -10,7 +10,7 @@ Same for Vote and Ballot classes (which could be technically considered as netwo
 """
 from typing import override
 
-from crypto import CryptoContent, CipheredContent, VoteEncryptionKeys
+from crypto import CryptoContent, CipheredContent, VoteEncryptionKeys, TallierKeyShareNIZKP
 from network import NetworkMessage
 
 
@@ -74,7 +74,7 @@ Tallier Messages.
 
 class TallierPartialKeyMessage(CryptoContent):
 
-    def __init__(self, tallier_id: str, pub_key: VoteEncryptionKeys, nizkp = None):
+    def __init__(self, tallier_id: str, pub_key: VoteEncryptionKeys, nizkp: TallierKeyShareNIZKP):
         self.__tallier_id = tallier_id
         self.__pub_key = pub_key
         self.__nizkp = nizkp
@@ -95,7 +95,7 @@ class TallierPartialKeyMessage(CryptoContent):
     def as_bytes(self) -> bytes:
         tid = self.__tallier_id.encode('ascii')
         pkey = self.__pub_key.public  # TODO is it really bytes?
-        nizkp = bytes()  # TODO manage nizkp
+        nizkp = self.__nizkp.as_bytes()
 
         return tid + pkey + nizkp
 
