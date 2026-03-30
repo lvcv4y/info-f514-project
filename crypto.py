@@ -80,6 +80,12 @@ class CipheredContent(BytesContent):
     def clazz(self) -> type[ClearContent]:
         return self.__class
 
+    def __eq__(self, other):
+        if not isinstance(other, CipheredContent):
+            return False
+
+        return self.clazz == other.clazz and self.as_bytes() == other.as_bytes()
+
 
 class Signature(BytesContent):
     """
@@ -163,11 +169,17 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
 
     def decipher(self, ciphered: CipheredContent) -> ClearContent:
         """
-        Cipher the given content. The current key must be a private key.
+        Decipher the given content and restore its instance structure. The current key must be a private key.
         """
-        data_bytes = ciphered.as_bytes()
+        return ciphered.clazz.from_bytes(self.raw_decipher(ciphered.as_bytes()))
+
+    def raw_decipher(self, ciphered: bytes) -> bytes:
+        """
+        Decipher the given raw bytes, returns the raw deciphered bytes. The current key must be a private key.
+        """
         # TODO decipher
-        return ciphered.clazz.from_bytes(data_bytes)
+        deciphered = bytes()
+        return deciphered
 
 
 class SigningKeys(AsymmetricCryptographicKey):
