@@ -3,11 +3,13 @@ Classes to represent voters and their votes.
 """
 from uuid import uuid4
 from typing import Callable, override
+from functools import reduce
 
-from crypto import SigningKeys, CryptoContent, CipheredContent
+from crypto import SigningKeys, CryptoContent, CipheredContent, SignedContent, VoteEncryptionKeys
 from network import NetworkClient, Network, NetworkMessage
 from board import BBWrite
-from authorities import PKI
+from authorities import PKI, StartElectionMessage, ElectionAuthority
+from tallier import TallierPartialKeyMessage
 
 
 class Vote(CryptoContent):
@@ -21,8 +23,7 @@ class Vote(CryptoContent):
     def as_bytes(self) -> bytes:
         # TODO implement
         return bytes()
-    
-    # Maybe add a cipher method here?
+
 
 class Ballot(CryptoContent):
     def __init__(self, voter_id: str, vote_cipher: CipheredContent, nizkp = None):
@@ -61,6 +62,8 @@ class Voter(NetworkClient):
         PKI().add(self.__id, self.__keys.as_public())
 
         self.__last_posted_vote = None
+        self.__valid_talliers_ids = None
+        self.__talliers_key_dict = None
 
     @property
     def id(self):
@@ -80,23 +83,55 @@ class Voter(NetworkClient):
         """
         return self.__vote if self.__vote is not None else self.__vote_func(self)
 
+    @override
     def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
         # TODO implement
         # BulletinBoard read, ElectionAuthority initial parameters, etc
-        pass
-    
+        if isinstance(message, SignedContent):
+            inner = message.data
+
+            if isinstance(inner, StartElectionMessage):
+                # Verify signature
+                if not PKI().get_key_from_client(ElectionAuthority().id).verify_signature(message):
+                    return
+
+                if self.id not in inner.voters:
+                    # Oi, wdym I'm not a valid voter?? TODO fill complain?
+                    return
+
+                self.__valid_talliers_ids = inner.talliers
+                self.__talliers_key_dict = dict()
+
+            if isinstance(inner, TallierPartialKeyMessage):
+                # Verify signature
+                sign_key = PKI().get_key_from_client(inner.tallier_id)
+                if sign_key is None or not sign_key.verify_signature(message):
+                    return
+
+                # TODO verify nizkp
+
+                if inner.tallier_id in self.__talliers_key_dict:
+                    # Warning: two message for a same id, that's weird
+                    return
+
+                self.__talliers_key_dict[inner.tallier_id] = inner.pub_key
+
+
     def post_vote(self):
+        # Compute total encryption key.
+        if self.__valid_talliers_ids is None or len(self.__talliers_key_dict) != len(self.__valid_talliers_ids):
+            raise ValueError("Talliers missing. Either the vote is too early, or a message has been dropped.")
 
-        # TODO cipher self.vote
+        # Assume symmetric mul. TODO verify that works
+        encryption_key: VoteEncryptionKeys = reduce(lambda k1, k2: k2 * k1, self.__talliers_key_dict.values(), None)
 
-        vote = self.vote
-        # TODO cipher
-        ciphered_vote = None
+        ciphered_vote = encryption_key.cipher(self.vote)
 
-        message = self.__keys.sign(ciphered_vote)
+        # TODO nizkp
+        nizkp = None
 
-        # TODO generate/manage NIZKP
+        ballot = Ballot(self.id, ciphered_vote, nizkp)
 
-        voting_message = None # (cipher, NIZKP, pi^Enc_i)
-        self.__network.send(BBWrite.with_content(voting_message), self, None)  # Broadcast to find BulletinBoard
+        message = self.__keys.sign(ballot)
+        self.__network.send(BBWrite.with_content(message), self, None)  # Broadcast to find BulletinBoard
 
