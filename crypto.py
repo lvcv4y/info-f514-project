@@ -16,7 +16,7 @@ from network import NetworkMessage
 Content classes. Used to abstract the formats of data from their usage
 """
 
-class CryptoContent(ABC, NetworkMessage):
+class CryptoContent(NetworkMessage):  # NetworkMessage is already abstract
     """
     General interface, represents any data that might be used for cryptography (signature, clear content, ciphered content).
       The child classes will be used by the key classes to perform data conversion and signature.
@@ -50,7 +50,7 @@ class BytesContent(CryptoContent):
         return self.__inner
 
 
-class ClearContent(ABC, CryptoContent):
+class ClearContent(CryptoContent):
     """
     Interface that defines the conversions between crypto-encoded data (typically bytes) and clear data (python object).
     """
