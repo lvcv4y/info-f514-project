@@ -6,7 +6,7 @@ from typing import Callable, override
 from functools import reduce
 
 from crypto import SigningKeys, CryptoContent, CipheredContent, SignedContent, VoteEncryptionKeys, VoteNIZKP, \
-    VoteNIZKPBuildContext
+    VoteNIZKPBuildContext, PubkeyVerificationContext
 from network import NetworkClient, Network, NetworkMessage
 from authorities import PKI, ElectionAuthority
 
@@ -109,7 +109,8 @@ class Voter(NetworkClient):
                 if sign_key is None or not sign_key.verify_signature(message):
                     return
 
-                # TODO verify nizkp
+                if not inner.nizkp.verify(PubkeyVerificationContext(inner.pub_key)):
+                    return
 
                 if inner.tallier_id in self.__talliers_key_dict:
                     # Warning: two message for a same id, that's weird
@@ -129,7 +130,6 @@ class Voter(NetworkClient):
         vote = self.vote
         ciphered_vote = encryption_key.cipher(vote)
 
-        # TODO nizkp
         nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(vote, self.__keys))
 
         ballot = Ballot(self.id, ciphered_vote, nizkp)

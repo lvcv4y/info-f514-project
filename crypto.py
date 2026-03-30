@@ -290,26 +290,33 @@ class NIZKP[B:BuildContext, V: VerificationContext](ClearContent):
 NIZKP implementations
 """
 
+class KeyBuildContext(BuildContext):
+    """
+    General build context that requires a key pair.
+    """
+    def __init__(self, key: AsymmetricCryptographicKey):
+        if not key.is_private():
+            raise KeyNotPrivateError()
+
+        super().__init__()
+        self.key = key
+
+
 class PubkeyVerificationContext(VerificationContext):
     """
-    General verification context that only requires author public key.
+    General verification context that requires author public key.
     """
-    def __init__(self, pubkey: SigningKeys):
-        # For now, use signing keys, although AsymmetricCryptographicKey could work.
+    def __init__(self, pubkey: AsymmetricCryptographicKey):
         super().__init__()
         self.key = pubkey
 
 
 # Vote
 
-class VoteNIZKPBuildContext(BuildContext):
+class VoteNIZKPBuildContext(KeyBuildContext):
     def __init__(self, vote: "Vote", key: SigningKeys):
-        if not key.is_private():
-            raise KeyNotPrivateError()
-
-        super().__init__()
+        super().__init__(key)
         self.vote = vote
-        self.key = key
 
 
 class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, PubkeyVerificationContext]):
@@ -320,6 +327,20 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, PubkeyVerificationContext]):
         return VoteNIZKP(proof)
 
     @override
+    def verify(self, ctx: PubkeyVerificationContext) -> bool:
+        # TODO implement
+        return False
+
+
+# Tallier Key Share: that's only a key-pair NIZKP
+
+class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
+    @staticmethod
+    def generate(ctx: KeyBuildContext) -> TallierKeyShareNIZKP:
+        # TODO implement
+        proof = bytes()
+        return TallierKeyShareNIZKP(proof)
+
     def verify(self, ctx: PubkeyVerificationContext) -> bool:
         # TODO implement
         return False

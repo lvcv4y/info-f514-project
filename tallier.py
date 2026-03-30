@@ -3,7 +3,8 @@ Tallier related objects and methods.
 """
 from uuid import uuid4
 
-from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, CipheredContent, PubkeyVerificationContext
+from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, CipheredContent, PubkeyVerificationContext, \
+    TallierKeyShareNIZKP, KeyBuildContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
 from authorities import ElectionAuthority, PKI
@@ -44,8 +45,7 @@ class Tallier(NetworkClient):
                     self.__keys = VoteEncryptionKeys(inner.crypto_parameters)
                     self.__valid_voters = inner.voters
 
-                    # TODO generate nizkp
-                    nizkp = None
+                    nizkp = TallierKeyShareNIZKP.generate(KeyBuildContext(self.__keys))
 
                     reply = TallierPartialKeyMessage(self.__id, self.__keys.as_public(), nizkp)
                     self.__network.send(
