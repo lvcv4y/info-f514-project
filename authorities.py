@@ -4,13 +4,15 @@ Those actors are the only thing the voters trusts.
 
 Note: Voters actually have a trusted additional channel to report errors / detected frauds.
 """
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
 from network import Network
-from vote import Voter, Vote
-from tallier import Tallier
 from crypto import SigningKeys
 from messages import StartElectionMessage, StopElectionMessage
+
+if TYPE_CHECKING:
+    from vote import Voter, Vote
+    from tallier import Tallier
 
 class ElectionAuthority:
     """
@@ -29,7 +31,7 @@ class ElectionAuthority:
             cls.instance = super().__new__(cls)
         return cls.instance
 
-    def __init__(self, vote_validator: Callable[[Vote], bool] = None, network: "Network" = None):
+    def __init__(self, vote_validator: Callable[["Vote"], bool] = None, network: "Network" = None):
         self.__voters = []
         self.__talliers = []
         self.pki = PKI()
@@ -59,7 +61,7 @@ class ElectionAuthority:
         return voter in self.__voters
 
 
-    def is_vote_valid(self, vote: Vote):
+    def is_vote_valid(self, vote: "Vote"):
         # Normally, voters choose a vote in a given set. We'll mimic that with a function.
         return self.__vote_validator(vote)
 
