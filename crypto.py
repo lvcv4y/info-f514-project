@@ -259,7 +259,7 @@ class NIZKP[B:BuildContext, V: VerificationContext](ClearContent):
     """
     @staticmethod
     @abstractmethod
-    def generate(ctx: B) -> NIZKP[B, V]:
+    def generate(ctx: B) -> "NIZKP[B, V]":
         """
         Build the NIZKP given the context. It should build the bytes and pass it to the class constructor.
           See other implementation for example.
@@ -321,7 +321,7 @@ class VoteNIZKPBuildContext(KeyBuildContext):
 
 class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, PubkeyVerificationContext]):
     @staticmethod
-    def generate(ctx: VoteNIZKPBuildContext) -> VoteNIZKP:
+    def generate(ctx: VoteNIZKPBuildContext) -> "VoteNIZKP":
         # TODO implement
         proof = bytes()
         return VoteNIZKP(proof)
@@ -336,10 +336,30 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, PubkeyVerificationContext]):
 
 class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
     @staticmethod
-    def generate(ctx: KeyBuildContext) -> TallierKeyShareNIZKP:
+    def generate(ctx: KeyBuildContext) -> "TallierKeyShareNIZKP":
         # TODO implement
         proof = bytes()
         return TallierKeyShareNIZKP(proof)
+
+    def verify(self, ctx: PubkeyVerificationContext) -> bool:
+        # TODO implement
+        return False
+
+
+# Tallier Partial Decryption
+
+class TallierPartialDecryptionNIZKPBuildContext(KeyBuildContext):
+    def __init__(self, key: VoteEncryptionKeys, partial_dec: bytes):
+        super().__init__(key)
+        self.partial_dec = partial_dec
+
+
+class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext]):
+    @staticmethod
+    def generate(ctx: TallierPartialDecryptionNIZKPBuildContext) -> "TallierPartialDecryptionNIZKP":
+        # TODO implement
+        proof = bytes()
+        return TallierPartialDecryptionNIZKP(proof)
 
     def verify(self, ctx: PubkeyVerificationContext) -> bool:
         # TODO implement
