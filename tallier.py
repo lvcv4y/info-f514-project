@@ -3,7 +3,8 @@ Tallier related objects and methods.
 """
 from uuid import uuid4
 
-from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, CipheredContent
+from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, CipheredContent, PubkeyVerificationContext, \
+    TallierKeyShareNIZKP, KeyBuildContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
 from authorities import ElectionAuthority, PKI
@@ -44,8 +45,7 @@ class Tallier(NetworkClient):
                     self.__keys = VoteEncryptionKeys(inner.crypto_parameters)
                     self.__valid_voters = inner.voters
 
-                    # TODO generate nizkp
-                    nizkp = None
+                    nizkp = TallierKeyShareNIZKP.generate(KeyBuildContext(self.__keys))
 
                     reply = TallierPartialKeyMessage(self.__id, self.__keys.as_public(), nizkp)
                     self.__network.send(
@@ -102,13 +102,15 @@ class Tallier(NetworkClient):
                 continue
 
             ballot: Ballot = obj.data
+            signing_key = self.__pki.get_key_from_client(ballot.voter_id)
             if (
                 ballot.voter_id not in self.__valid_voters or  # Unknown voter
-                not self.__pki.get_key_from_client(ballot.voter_id).verify_signature(obj)  # Wrong signature
+                signing_key is None or not signing_key.verify_signature(obj)  # Wrong signature
             ):
                 continue
 
-            # TODO verify ballot nizkp
+            if not ballot.nizkp.verify(PubkeyVerificationContext(signing_key)):
+                continue
 
             # The voter ID is legit, the signature and NIZKP are verified.
 
