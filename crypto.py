@@ -9,12 +9,43 @@ TODO:
 """
 from abc import ABC, abstractmethod
 from typing import override, TYPE_CHECKING
+import secrets
+import hashlib
+import struct
 
 from exceptions import KeyNotPrivateError
 from network import NetworkMessage
 
 if TYPE_CHECKING:
     from vote import Vote
+
+# Parameters of crytpo protocols
+
+# (RFC 3526 – 2048-bit MODP group, safe prime)
+# https://datatracker.ietf.org/doc/html/rfc3526
+
+# Prime order group
+_P = int(
+    "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1"
+    "29024E088A67CC74020BBEA63B139B22514A08798E3404DD"
+    "EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245"
+    "E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED"
+    "EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D"
+    "C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F"
+    "83655D23DCA3AD961C62F356208552BB9ED529077096966D"
+    "670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B"
+    "E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9"
+    "DE2BCBF6955817183995497CEA956AE515D2261898FA0510"
+    "15728E5A8AACAA68FFFFFFFFFFFFFFFF",
+    16,
+)
+
+# Prime order subgroup
+_Q = (_P - 1) // 2
+
+# Generator
+_G = 2 
+
 
 """
 Content classes. Used to abstract the formats of data from their usage
@@ -150,26 +181,39 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         """
         Generate a pair of ElGamal public-private keys.
         """
-        # TODO implement
-        # Note: Do not use ElectionAuthority. Parameters must be given in argument if needed,
-        # they are posted on the Network.
-        return VoteEncryptionKeys(None, None)
+        # Random sk
+        sk = secrets.randbelow(_Q - 1) + 1
+        # pk = g^x mod p
+        pk = pow(_G, sk, _P)
+        return VoteEncryptionKeys(pk, sk)
 
     @staticmethod
     def product(k1: VoteEncryptionKeys, k2: VoteEncryptionKeys) -> VoteEncryptionKeys:
         """
         Compute the product of two public keys.
         """
-        # TODO implement
-        return None
+        product_key = (k1.public * k2.public) % _P
+        return VoteEncryptionKeys(product_key, None)
 
     def cipher(self, content: ClearContent) -> CipheredContent:
         """
         Cipher the given content.
         """
         data_bytes = content.as_bytes()
-        # TODO cipher
-        return CipheredContent(data_bytes, type(content))
+        # bytes -> int
+        m = int.from_bytes(data_bytes, byteorder='big')
+        m = m % (_P - 1)
+        
+        # random k in [1, q-1]
+        k = secrets.randbelow(_Q - 1) + 1
+        # a = g^k mod p
+        a = pow(_G, k, _P)
+        # b = m * pk^k mod p
+        b = (m * pow(self.public, k, _P)) % _P
+        
+        # Convert to bytes and pack a and b together
+        ciphered = struct.pack('>QQ', a, b)
+        return CipheredContent(ciphered, type(content))
 
     def decipher(self, ciphered: CipheredContent) -> ClearContent:
         """
@@ -187,9 +231,21 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         if not self.is_private():
             raise KeyNotPrivateError()
 
-        # TODO decipher
-        deciphered = bytes()
-        return deciphered
+        try:
+            # Extract a and b from ciphered bytes
+            a, b = struct.unpack('>QQ', ciphered)
+            # Compute a^(-sk) mod p = a^(p-1-sk) mod p by Fermat's Little Theorem (We do that to have positive powers)
+            # Note : a^(-sk) mod p = g^(-sk*k) mod p
+            a_inv = pow(a, _P - 1 - self.private, _P)
+            # Compute m = b * a^(-sk) mod p
+            # Note : b * a^(-sk) mod p = m * pk^k * g^(-sk*k) mod p = m * g^(sk*k) * g^(-sk*k) mod p = m mod p
+            # So we get the original message m back.
+            m = (b * a_inv) % _P
+            # Convert to bytes
+            deciphered = m.to_bytes(32, byteorder='big')
+            return deciphered
+        except:
+            return bytes()
 
 
 class SigningKeys(AsymmetricCryptographicKey):
@@ -202,6 +258,10 @@ class SigningKeys(AsymmetricCryptographicKey):
     """
 
     # TODO define signature cryptographic parameters.
+
+    # For example : RSA hash-based signature : https://www.youtube.com/watch?v=TeuKV5kHLyQ
+
+    #TBD
 
     @staticmethod
     def generate() -> SigningKeys:
@@ -237,6 +297,7 @@ class SigningKeys(AsymmetricCryptographicKey):
 """
 NIZKPs abstract classes
 """
+#TBD
 
 # Verification contexts
 class VerificationContext(ABC):
