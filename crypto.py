@@ -13,39 +13,11 @@ import secrets
 import hashlib
 import struct
 
-from exceptions import KeyNotPrivateError
+from exceptions import KeyNotPrivateError, CryptoError
 from network import NetworkMessage
 
 if TYPE_CHECKING:
     from vote import Vote
-
-# Parameters of crytpo protocols
-
-# (RFC 3526 – 2048-bit MODP group, safe prime)
-# https://datatracker.ietf.org/doc/html/rfc3526
-
-# Prime order group
-_P = int(
-    "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1"
-    "29024E088A67CC74020BBEA63B139B22514A08798E3404DD"
-    "EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245"
-    "E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED"
-    "EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D"
-    "C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F"
-    "83655D23DCA3AD961C62F356208552BB9ED529077096966D"
-    "670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B"
-    "E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9"
-    "DE2BCBF6955817183995497CEA956AE515D2261898FA0510"
-    "15728E5A8AACAA68FFFFFFFFFFFFFFFF",
-    16,
-)
-
-# Prime order subgroup
-_Q = (_P - 1) // 2
-
-# Generator
-_G = 2 
-
 
 """
 Content classes. Used to abstract the formats of data from their usage
@@ -176,44 +148,72 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
     """
     ElGamal key pair, used for ballot encryption.
     """
+    def __init__(self, pub, private, crypto_params=None):
+        super().__init__(pub, private)
+        if crypto_params is None:
+            raise CryptoError("Crypto parameters have to be provided")
+        self.__crypto_params = crypto_params
+
+    @property
+    def crypto_params(self):
+        return self.__crypto_params
+
+    @override
+    def as_public(self):
+        """Return a public-only version of this key, preserving crypto parameters."""
+        return VoteEncryptionKeys(self.public, None, self.__crypto_params)
+
     @staticmethod
-    def generate_from(*crypto_params) -> VoteEncryptionKeys:
+    def generate_from(p, q, g) -> VoteEncryptionKeys:
         """
         Generate a pair of ElGamal public-private keys.
+        Args:
+            p: Prime order of the group
+            q: Prime order of subgroup
+            g: Generator
         """
+        if not isinstance(p, int) or not isinstance(q, int) or not isinstance(g, int):
+            raise CryptoError("Crypto parameters aren't integers")
+        
         # Random sk
-        sk = secrets.randbelow(_Q - 1) + 1
+        sk = secrets.randbelow(q - 1) + 1
         # pk = g^x mod p
-        pk = pow(_G, sk, _P)
-        return VoteEncryptionKeys(pk, sk)
+        pk = pow(g, sk, p)
+        return VoteEncryptionKeys(pk, sk, (p, q, g))
 
     @staticmethod
     def product(k1: VoteEncryptionKeys, k2: VoteEncryptionKeys) -> VoteEncryptionKeys:
         """
         Compute the product of two public keys.
         """
-        product_key = (k1.public * k2.public) % _P
-        return VoteEncryptionKeys(product_key, None)
+        # Use parameters from first key (we assume they are the same for both keys, as they should be generated with the same parameters)
+        p, q, g = k1.crypto_params
+        product_key = (k1.public * k2.public) % p
+        return VoteEncryptionKeys(product_key, None, (p, q, g))
 
     def cipher(self, content: ClearContent) -> CipheredContent:
         """
         Cipher the given content.
         """
-        data_bytes = content.as_bytes()
-        # bytes -> int
-        m = int.from_bytes(data_bytes, byteorder='big')
-        m = m % (_P - 1)
-        
-        # random k in [1, q-1]
-        k = secrets.randbelow(_Q - 1) + 1
-        # a = g^k mod p
-        a = pow(_G, k, _P)
-        # b = m * pk^k mod p
-        b = (m * pow(self.public, k, _P)) % _P
-        
-        # Convert to bytes and pack a and b together
-        ciphered = struct.pack('>QQ', a, b)
-        return CipheredContent(ciphered, type(content))
+        try:
+            p, q, g = self.crypto_params
+            data_bytes = content.as_bytes()
+            # bytes -> int
+            m = int.from_bytes(data_bytes, byteorder='big')
+            m = m % (p - 1)
+            
+            # random k in [1, q-1]
+            k = secrets.randbelow(q - 1) + 1
+            # a = g^k mod p
+            a = pow(g, k, p)
+            # b = m * pk^k mod p
+            b = (m * pow(self.public, k, p)) % p
+            
+            # Convert to bytes and pack a and b together
+            ciphered = struct.pack('>QQ', a, b)
+            return CipheredContent(ciphered, type(content))
+        except Exception as e:
+            raise CryptoError(f"Ciphering failed: {str(e)}")
 
     def decipher(self, ciphered: CipheredContent) -> ClearContent:
         """
@@ -232,20 +232,21 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
             raise KeyNotPrivateError()
 
         try:
+            p, q, g = self.crypto_params
             # Extract a and b from ciphered bytes
             a, b = struct.unpack('>QQ', ciphered)
             # Compute a^(-sk) mod p = a^(p-1-sk) mod p by Fermat's Little Theorem (We do that to have positive powers)
             # Note : a^(-sk) mod p = g^(-sk*k) mod p
-            a_inv = pow(a, _P - 1 - self.private, _P)
+            a_inv = pow(a, p - 1 - self.private, p)
             # Compute m = b * a^(-sk) mod p
             # Note : b * a^(-sk) mod p = m * pk^k * g^(-sk*k) mod p = m * g^(sk*k) * g^(-sk*k) mod p = m mod p
             # So we get the original message m back.
-            m = (b * a_inv) % _P
+            m = (b * a_inv) % p
             # Convert to bytes
             deciphered = m.to_bytes(32, byteorder='big')
             return deciphered
-        except:
-            return bytes()
+        except Exception as e:
+            raise CryptoError(f"Deciphering failed: {str(e)}")
 
 
 class SigningKeys(AsymmetricCryptographicKey):
