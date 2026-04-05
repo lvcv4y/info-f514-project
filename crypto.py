@@ -202,12 +202,14 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
             m = int.from_bytes(data_bytes, byteorder='big')
             m = m % (p - 1)
             
+            m_encoded = pow(g, m, p)
+
             # random k in [1, q-1]
             k = secrets.randbelow(q - 1) + 1
             # a = g^k mod p
             a = pow(g, k, p)
-            # b = m * pk^k mod p
-            b = (m * pow(self.public, k, p)) % p
+            # b = m_enc * pk^k mod p
+            b = (m_encoded * pow(self.public, k, p)) % p
             
             # Convert to bytes and pack a and b together
             ciphered = struct.pack('>QQ', a, b)
@@ -238,15 +240,29 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
             # Compute a^(-sk) mod p = a^(p-1-sk) mod p by Fermat's Little Theorem (We do that to have positive powers)
             # Note : a^(-sk) mod p = g^(-sk*k) mod p
             a_inv = pow(a, p - 1 - self.private, p)
-            # Compute m = b * a^(-sk) mod p
-            # Note : b * a^(-sk) mod p = m * pk^k * g^(-sk*k) mod p = m * g^(sk*k) * g^(-sk*k) mod p = m mod p
-            # So we get the original message m back.
-            m = (b * a_inv) % p
+            # Compute m_enc = b * a^(-sk) mod p
+            # Note : b * a^(-sk) mod p = m_enc * pk^k * g^(-sk*k) mod p = m_enc * g^(sk*k) * g^(-sk*k) mod p = m_enc mod p
+            # So we get the original m_enc back.
+            m_enc = (b * a_inv) % p
+            # m_enc = g^m mod p => m = log_g(m_enc) mod p : solve for dlp
+            m = self.discrete_log(g, m_enc, p)
             # Convert to bytes
             deciphered = m.to_bytes(32, byteorder='big')
             return deciphered
         except Exception as e:
             raise CryptoError(f"Deciphering failed: {str(e)}")
+    
+    def discrete_log(self, g, h, p):
+        """
+        Solve the dlp bruteforce (assumed in the article that the number of possible
+        votes is small, so it's not a problem to do so). Returns x such that g^x = h mod p.
+        """
+        current = 1
+        for m in range(p):
+            if current == h:
+                return m
+            current = (current * g) % p
+        raise CryptoError("Discrete log not found")
 
 
 class SigningKeys(AsymmetricCryptographicKey):
