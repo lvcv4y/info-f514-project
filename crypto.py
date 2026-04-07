@@ -10,8 +10,9 @@ TODO:
 from abc import ABC, abstractmethod
 from typing import override, TYPE_CHECKING
 import secrets
-import hashlib
 import struct
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
 
 from exceptions import KeyNotPrivateError, CryptoError
 from network import NetworkMessage
@@ -268,24 +269,28 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
 class SigningKeys(AsymmetricCryptographicKey):
     """
     Represents a key-pair used for signature.
+    Uses RSA signature with SHA-256 hashing.
     """
 
     """
     Protocols constants.
     """
+    RSA_KEY_SIZE = 2048
 
-    # TODO define signature cryptographic parameters.
-
-    # For example : RSA hash-based signature : https://www.youtube.com/watch?v=TeuKV5kHLyQ
-
-    #TBD
+    def __init__(self, pub, private=None):
+        super().__init__(pub, private)
 
     @staticmethod
-    def generate() -> SigningKeys:
+    def generate() -> "SigningKeys":
         """
-        Generate a pair of public-private keys for signature. Uses protocol constants.
+        Generate a pair of public-private keys for signature.
         """
-        return SigningKeys(None, None)
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=SigningKeys.RSA_KEY_SIZE
+        )
+        public_key = private_key.public_key()
+        return SigningKeys(public_key, private_key)
 
     def sign(self, content: CryptoContent) -> SignedContent:
         """
@@ -296,8 +301,13 @@ class SigningKeys(AsymmetricCryptographicKey):
 
         data = content.as_bytes()
 
-        # TODO sign
-        signature = Signature(bytes())
+        # Sign using the private key
+        signature_bytes = self.private.sign(
+            data,
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+        signature = Signature(signature_bytes)
 
         return SignedContent(content, signature)
 
@@ -305,11 +315,20 @@ class SigningKeys(AsymmetricCryptographicKey):
         """
         returns True if the given SignedContent has a right signature. Returns False otherwise.
         """
-        data = signed.data.as_bytes()
-        signature = signed.signature.as_bytes()
+        try:
+            data = signed.data.as_bytes()
+            signature_bytes = signed.signature.as_bytes()
 
-        # TODO verify signature
-        return False
+            # Verify using the public key
+            self.public.verify(
+                signature_bytes,
+                data,
+                padding.PKCS1v15(),
+                hashes.SHA256()
+            )
+            return True
+        except Exception:
+            return False
 
 """
 NIZKPs abstract classes
