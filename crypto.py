@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from typing import override, TYPE_CHECKING
 import secrets
 import struct
+import hashlib
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 
@@ -408,7 +409,7 @@ class PubkeyVerificationContext(VerificationContext):
         self.key = pubkey
 
 
-# Vote
+# Vote proofs knowlegde, correctness and validity of a vote.
 
 class VoteNIZKPBuildContext(KeyBuildContext):
     def __init__(self, vote: "Vote", key: SigningKeys):
@@ -434,12 +435,58 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, PubkeyVerificationContext]):
 class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
     @staticmethod
     def generate(ctx: KeyBuildContext) -> "TallierKeyShareNIZKP":
-        # TODO implement
-        proof = bytes()
+        """Fiat-Shamir p72-78 : Proof of knowledge of a valid sk s.t. pk = g^sk.
+        1. Take random r in [1, q-1], compute t = g^r mod p
+        2. Compute c = hash(g, pk, t)
+        3. Compute s = r + c*sk mod q
+        4. Return (t, s) as proof.
+        """
+        key = ctx.key
+        if not isinstance(key, VoteEncryptionKeys):
+            raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
+        
+        p, q, g = key.crypto_params
+        pk = key.public
+
+        #Step 1
+        r = secrets.randbelow(q - 1) + 1
+        t = pow(g, r, p)
+        #Step 2
+        c_input = f"{g}{pk}{t}".encode()
+        c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
+        #Step 3
+        s = (r + c * key.private) % q
+        #Step 4
+        proof = struct.pack('>QQ', t, s)
         return TallierKeyShareNIZKP(proof)
 
     def verify(self, ctx: PubkeyVerificationContext) -> bool:
-        # TODO implement
+        """Verify the proof (t, s) as follows: 
+        1. Compute c = hash(g, pk, t)
+        2. Compute t' = g^s * pk^(-c) mod p
+                    = g^(r + c*sk) * g^(-c*sk) mod p
+                    = g^r mod p
+         and should = t if the proof is valid.
+        3. Accept if t' == t, reject otherwise.
+        """
+        key = ctx.key
+        if not isinstance(key, VoteEncryptionKeys):
+            raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
+        p, q, g = key.crypto_params
+        pk = key.public
+        # Extract t and s from proof
+        t, s = struct.unpack('>QQ', self.as_bytes())
+        # Step 1
+        c_input = f"{g}{pk}{t}".encode()
+        c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
+        # Step 2
+        # Compute pk^(-c) mod p = pk^(p - 1 - c) mod p by Fermat's Little Theorem
+        pk_inv_c =  pow(pk, p - 1 - c, p)
+        t_prime = (pow(g, s, p) * pk_inv_c) % p
+        # Step 3
+        if t_prime == t:
+            return True
+
         return False
 
 
