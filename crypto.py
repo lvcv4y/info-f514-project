@@ -381,7 +381,7 @@ class NIZKP[B:BuildContext, V: VerificationContext](ClearContent):
     @override
     @classmethod
     def from_bytes(cls, data: bytes):
-        cls(data)
+        return cls(data)
 
 
 """
@@ -409,28 +409,108 @@ class PubkeyVerificationContext(VerificationContext):
         self.key = pubkey
 
 
-# Vote proofs knowlegde, correctness and validity of a vote.
+# Vote proofs knowlegde, correctness and validity of a vote. π_Enc
+
+class VoteVerificationContext(VerificationContext):
+    def __init__(self, key: VoteEncryptionKeys, ciphertexts: list[tuple[int, int]]):
+        super().__init__()
+        self.key = key
+        self.ciphertexts = ciphertexts
+
 
 class VoteNIZKPBuildContext(KeyBuildContext):
-    def __init__(self, vote: "Vote", key: SigningKeys):
+    def __init__(self, vote: "Vote", key: VoteEncryptionKeys):
         super().__init__(key)
         self.vote = vote
 
-
-class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, PubkeyVerificationContext]):
+"""Chaum-Pedersen on each component:
+        for each j, we proof knowledge of (r_j, v[j]) such that:
+        - ct[j][0] = g^{r_j}
+        - ct[j][1] = g^{v[j]} · pk^{r_j}"""
+class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteVerificationContext]):
     @staticmethod
     def generate(ctx: VoteNIZKPBuildContext) -> "VoteNIZKP":
-        # TODO implement
-        proof = bytes()
+        """
+        Protocol : 
+        1. for each j, chose random a0_j and a1_j in [1, q-1] 
+            compute t_j0 = g^{a0_j} mod p and t_j1 = g^{a1_j} pk^{a0_j} mod p
+        2. compute c = hash(g, pk, ct, t) with t[j] = (t_j0, t_j1) for all j
+        3. compute s0_j = a0_j + c*r_j mod q and s1_j = a1_j + c*v[j] mod q for all j
+        4. return (t, s) as proof.
+        """
+        key = ctx.key
+        if not isinstance(key, VoteEncryptionKeys):
+            raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
+        p, q, g = key.crypto_params
+        pk = key.public
+        ncandidates = len(ctx.vote.ciphertexts)
+        # Step 1
+        a0 = [secrets.randbelow(q - 1) + 1 for _ in range(ncandidates)]
+        a1 = [secrets.randbelow(q - 1) + 1 for _ in range(ncandidates)]
+        t = []
+        for j in range(ncandidates):
+            t_j0 = pow(g, a0[j], p)
+            t_j1 = (pow(g, a1[j], p) * pow(pk, a0[j], p)) % p
+            t.append((t_j0, t_j1))
+        # Step 2
+        c_input = (
+            f"{g}{pk}"
+            + "".join(f"{a}{b}" for a, b in ctx.vote.ciphertexts)
+            + "".join(f"{t0}{t1}" for t0, t1 in t)
+        ).encode()
+        c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
+        # Step 3
+        s0 = [(a0[j] + c * ctx.vote.randomness[j]) % q for j in range(ncandidates)]
+        s1 = [(a1[j] + c * ctx.vote.plaintext[j]) % q for j in range(ncandidates)]
+        # Step 4
+        proof = struct.pack(f'>{2*ncandidates}Q', *[item for sublist in t for item in sublist]) + \
+                struct.pack(f'>{ncandidates}Q', *s0) + \
+                struct.pack(f'>{ncandidates}Q', *s1)
+
         return VoteNIZKP(proof)
 
     @override
-    def verify(self, ctx: PubkeyVerificationContext) -> bool:
-        # TODO implement
-        return False
+    def verify(self, ctx: VoteVerificationContext) -> bool:
+        """
+        Verify the proof as follows:
+        1. Extract t and s from proof
+        2. Compute c = hash(g, pk, ct, t) with t[j] = (t_j0, t_j1) for all j
+        3. For each j, compute t'_j0 = g^{s0_j} ct[j][0]^{-c} mod p and t'_j1 = g^{s1_j} pk^{s0_j} ct[j][1]^{-c} mod p
+        4. Accept if t'_j0 == t[j][0] and t'_j1 == t[j][1] for all j, reject otherwise.
+        """
+        key = ctx.key
+        if not isinstance(key, VoteEncryptionKeys):
+            raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
+        p, q, g = key.crypto_params
+        pk = key.public
+        ncandidates = len(ctx.vote.ciphertexts)
+        # Step 1
+        t = []
+        for j in range(ncandidates):
+            t_j0, t_j1 = struct.unpack_from(f'>QQ', self.as_bytes(), offset=j*16)
+            t.append((t_j0, t_j1))
+        s0_offset = ncandidates * 16
+        s1_offset = s0_offset + ncandidates * 8
+        s0 = struct.unpack_from(f'>{ncandidates}Q', self.as_bytes(), offset=s0_offset)
+        s1 = struct.unpack_from(f'>{ncandidates}Q', self.as_bytes(), offset=s1_offset)
+        # Step 2
+        c_input = (
+            f"{g}{pk}"
+            + "".join(f"{a}{b}" for a, b in ctx.vote.ciphertexts)
+            + "".join(f"{t0}{t1}" for t0, t1 in t)
+        ).encode()
+        c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
+        # Step 3 and 4
+        for j in range(ncandidates):
+            ct_j0, ct_j1 = ctx.vote.ciphertexts[j]
+            t_j0_prime = (pow(g, s0[j], p) * pow(ct_j0, p - 1 - c, p)) % p
+            t_j1_prime = (pow(g, s1[j], p) * pow(pk, s0[j], p) * pow(ct_j1, p - 1 - c, p)) % p
+            if t_j0_prime != t[j][0] or t_j1_prime != t[j][1]:
+                return False
+        return True
 
 
-# Tallier Key Share: that's only a key-pair NIZKP
+# Tallier Key Share: that's only a key-pair NIZKP π_KeyShareGen
 
 class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
     @staticmethod
@@ -443,7 +523,7 @@ class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
         """
         key = ctx.key
         if not isinstance(key, VoteEncryptionKeys):
-            raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
+            raise CryptoError("TallierKeyShareNIZKP requires VoteEncryptionKeys")
         
         p, q, g = key.crypto_params
         pk = key.public
@@ -471,7 +551,7 @@ class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
         """
         key = ctx.key
         if not isinstance(key, VoteEncryptionKeys):
-            raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
+            raise CryptoError("TallierKeyShareNIZKP requires VoteEncryptionKeys")
         p, q, g = key.crypto_params
         pk = key.public
         # Extract t and s from proof
@@ -490,21 +570,111 @@ class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
         return False
 
 
-# Tallier Partial Decryption
+# Tallier Partial Decryption : π_DecShare
 
 class TallierPartialDecryptionNIZKPBuildContext(KeyBuildContext):
-    def __init__(self, key: VoteEncryptionKeys, partial_dec: bytes):
+    def __init__(self, key: VoteEncryptionKeys,
+                 ctaggr: list[tuple[int,int]],
+                 partial_dec: list[int]):
+        """
+        key         : tallier's sk
+        ctaggr      : aggregated vector [(h1_j, h2_j), ...]
+        partial_dec : [ds_j = h1_j^sk, ...] 
+        """
         super().__init__(key)
+        self.ctaggr      = ctaggr
         self.partial_dec = partial_dec
 
+class TallierPartialDecryptionVerifContext(VerificationContext):
+    def __init__(self, enc_key: VoteEncryptionKeys,
+                 ctaggr: list[tuple[int,int]],
+                 partial_dec: list[int]):
+        """
+        enc_key     : tallier's pk
+        ctaggr      : aggregated vector [(h1_j, h2_j), ...]
+        partial_dec : [ds_j = h1_j^sk, ...] 
+        """
+        super().__init__()
+        self.key         = enc_key
+        self.ctaggr      = ctaggr
+        self.partial_dec = partial_dec
+
+"""Chaum-Pedersen Proof of correct partial decryption:
+    Proove that for each j, ds_j = h1_j^sk and pk = g^sk."""
 
 class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext]):
     @staticmethod
     def generate(ctx: TallierPartialDecryptionNIZKPBuildContext) -> "TallierPartialDecryptionNIZKP":
-        # TODO implement
-        proof = bytes()
+        """
+        Protocol:
+        1. for each j, chose random r_j in [1, q-1] 
+            compute t_j0 = g^{r_j} mod p and t_j1 = h1_j^{r_j} mod p
+        2. compute c = hash(g, pk, ctaggr, partial_dec, t) with t[j] = (t_j0, t_j1) for all j
+        3. compute s_j = r_j + c*sk mod q for all j
+        4. return (t, s) as proof.
+        """
+        key = ctx.key
+        if not isinstance(key, VoteEncryptionKeys):
+            raise CryptoError("TallierPartialDecryptionNIZKP requires VoteEncryptionKeys")
+        p, q, g = key.crypto_params
+        pk = key.public
+        
+        ncandidates = len(ctx.ctaggr)
+        # Step 1
+        r = [secrets.randbelow(q - 1) + 1 for _ in range(ncandidates)]
+        t = []
+        for j in range(ncandidates):
+            t_j0 = pow(g, r[j], p)
+            t_j1 = pow(ctx.ctaggr[j][0], r[j], p)
+            t.append((t_j0, t_j1))
+        # Step 2
+        c_input = (
+            f"{g}{pk}"
+            + "".join(f"{h1}{h2}" for h1, h2 in ctx.ctaggr)
+            + "".join(f"{ds}" for ds in ctx.partial_dec)
+            + "".join(f"{t0}{t1}" for t0, t1 in t)
+        ).encode()
+        c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
+        # Step 3
+        s = [(r[j] + c * key.private) % q for j in range(ncandidates)]
+        # Step 4
+        proof = struct.pack(f'>{2*ncandidates}Q', *[item for sublist in t for item in sublist]) + \
+                struct.pack(f'>{ncandidates}Q', *s)
         return TallierPartialDecryptionNIZKP(proof)
 
     def verify(self, ctx: PubkeyVerificationContext) -> bool:
-        # TODO implement
-        return False
+        """
+        Verify the proof (t, s) as follows:
+        1. Compute c = hash(g, pk, ctaggr, partial_dec, t) with t[j] = (t_j0, t_j1) for all j
+        2. For each j, compute t'_j0 = g^{s_j} pk^{-c} mod p and t'_j1 = h1_j^{s_j} ds_j^{-c} mod p
+        3. Accept if t'_j0 == t[j][0] and t'_j1 == t[j][1] for all j, reject otherwise.
+        """
+        key = ctx.key
+        if not isinstance(key, VoteEncryptionKeys):
+            raise CryptoError("TallierPartialDecryptionNIZKP requires VoteEncryptionKeys")
+        p, q, g = key.crypto_params
+        pk = key.public
+        ncandidates = len(ctx.ctaggr)
+        # Step 1
+        t = []
+        for j in range(ncandidates):
+            t_j0, t_j1 = struct.unpack_from(f'>QQ', self.as_bytes(), offset=j*16)
+            t.append((t_j0, t_j1))
+        s_offset = ncandidates * 16
+        s = struct.unpack_from(f'>{ncandidates}Q', self.as_bytes(), offset=s_offset)
+        c_input = (
+            f"{g}{pk}"
+            + "".join(f"{h1}{h2}" for h1, h2 in ctx.ctaggr)
+            + "".join(f"{ds}" for ds in ctx.partial_dec)
+            + "".join(f"{t0}{t1}" for t0, t1 in t)
+        ).encode()
+        c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
+        # Step 2 and 3
+        for j in range(ncandidates):
+            h1_j = ctx.ctaggr[j][0]
+            ds_j = ctx.partial_dec[j]
+            t_j0_prime = (pow(g, s[j], p) * pow(pk, p - 1 - c, p)) % p
+            t_j1_prime = (pow(h1_j, s[j], p) * pow(ds_j, p - 1 - c, p)) % p
+            if t_j0_prime != t[j][0] or t_j1_prime != t[j][1]:
+                return False
+        return True
