@@ -93,7 +93,7 @@ class ElectionAuthority:
         if self.__election_started:  # No tallier added during the election.
             return
 
-        if tallier not in self.__voters:
+        if tallier not in self.__talliers:
             self.__talliers.append(tallier)
 
     def start_election(self):
