@@ -1,6 +1,7 @@
 """
 Classes to represent voters and their votes.
 """
+import secrets
 from uuid import uuid4
 from typing import Callable, override
 from functools import reduce
@@ -15,9 +16,18 @@ from exceptions import UnfinishedSetupPhaseError
 
 
 class Vote(CryptoContent):
-    def __init__(self, inner_tuple):
-        self.__inner =  inner_tuple
-    
+    def __init__(self, plaintext: list[int], encryption_key: VoteEncryptionKeys):
+        p, q, g = encryption_key.parameters()
+        pk = encryption_key.public_key()
+        self.plaintext = plaintext # Ex [0, 0, 1, 0] for a vote with 4 candidates, where the voter votes for the 3rd one
+        self.randomness = [] # random values associated to decrypt all values in plaintext, used for the NIZKP proof.
+        self.ciphertext = []
+        for v in plaintext:
+            r = secrets.randbelow(q - 1) + 1
+            self.randomness.append(r)
+            c = (pow(g, r, p), (pow(g, v, p)) * pow(pk, r, p) % p)
+            self.ciphertext.append(c)
+
     def unwrap(self):
         return self.__inner
 
@@ -127,13 +137,11 @@ class Voter(NetworkClient):
         # Assume symmetric mul. TODO verify that works
         encryption_key: VoteEncryptionKeys = reduce(lambda k1, k2: k2 * k1, self.__talliers_key_dict.values(), None)
 
-        vote = self.vote
-        ciphered_vote = encryption_key.cipher(vote)
+        vote = Vote(self.vote.unwrap(), encryption_key) # TODO unwrap not implemented yet
 
-        nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(vote, self.__keys))
+        nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(vote, encryption_key))
 
-        ballot = Ballot(self.id, ciphered_vote, nizkp)
+        ballot = Ballot(self.id, vote.ciphertext, nizkp)
 
         message = self.__keys.sign(ballot)
         self.__network.send(BBWrite.with_content(message), self, None)  # Broadcast to find BulletinBoard
-
