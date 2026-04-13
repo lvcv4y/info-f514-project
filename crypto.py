@@ -301,7 +301,6 @@ class SigningKeys(AsymmetricCryptographicKey):
             key_size=SigningKeys.RSA_KEY_SIZE
         )
         public_key = private_key.public_key()
-        public_key.verify()
         return SigningKeys(public_key, private_key)
 
     def sign(self, content: CryptoContent) -> SignedContent:
