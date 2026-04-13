@@ -1,14 +1,12 @@
 """
 Cryptography functions utils.
 
-TODO:
- - ZKP creation and verifications
-
- Note: for now, signing and ciphering are not compatible: only clear content can be signed, and signed content
+Note: for now, signing and ciphering are not compatible: only clear content can be signed, and signed content
    cannot be ciphered. To make it possible, SignedContent must extend ClearContent.
 """
 from abc import ABC, abstractmethod
-from typing import override, TYPE_CHECKING
+from math import log2, ceil
+from typing import override, TYPE_CHECKING, Literal
 import secrets
 import struct
 import hashlib
@@ -150,11 +148,15 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
     """
     ElGamal key pair, used for ballot encryption.
     """
-    def __init__(self, pub, private, crypto_params=None):
+    BYTEORDER: Literal['big'] = "big"
+
+    def __init__(self, pub, private, crypto_params = None):
         super().__init__(pub, private)
         if crypto_params is None:
             raise CryptoError("Crypto parameters have to be provided")
         self.__crypto_params = crypto_params
+        self.__psize = ceil(log2(self.__crypto_params[0]))  # ceil(log2(p))
+        self.__byte_format = f'>{self.__psize}s{self.__psize}s'
 
     @property
     def crypto_params(self):
@@ -188,7 +190,9 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         """
         Compute the product of two public keys.
         """
-        # Use parameters from first key (we assume they are the same for both keys, as they should be generated with the same parameters)
+        if k1.crypto_params != k2.crypto_params:
+            raise CryptoError("Both keys must have been generated with the same cryptographic parameters.")
+
         p, q, g = k1.crypto_params
         product_key = (k1.public * k2.public) % p
         return VoteEncryptionKeys(product_key, None, (p, q, g))
@@ -201,7 +205,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
             p, q, g = self.crypto_params
             data_bytes = content.as_bytes()
             # bytes -> int
-            m = int.from_bytes(data_bytes, byteorder='big')
+            m = int.from_bytes(data_bytes, byteorder=VoteEncryptionKeys.BYTEORDER)
             m = m % (p - 1)
             
             m_encoded = pow(g, m, p)
@@ -214,7 +218,9 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
             b = (m_encoded * pow(self.public, k, p)) % p
             
             # Convert to bytes and pack a and b together
-            ciphered = struct.pack('>QQ', a, b)
+            bytes_a = a.to_bytes(self.__psize, byteorder=VoteEncryptionKeys.BYTEORDER)
+            bytes_b = b.to_bytes(self.__psize, byteorder=VoteEncryptionKeys.BYTEORDER)
+            ciphered = struct.pack(self.__byte_format, bytes_a, bytes_b)
             return CipheredContent(ciphered, type(content))
         except Exception as e:
             raise CryptoError(f"Ciphering failed: {str(e)}")
@@ -238,7 +244,9 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         try:
             p, q, g = self.crypto_params
             # Extract a and b from ciphered bytes
-            a, b = struct.unpack('>QQ', ciphered)
+            bytes_a, bytes_b = struct.unpack(self.__byte_format, ciphered)
+            a = int.from_bytes(bytes_a, VoteEncryptionKeys.BYTEORDER)
+            b = int.from_bytes(bytes_b, VoteEncryptionKeys.BYTEORDER)
             # Compute a^(-sk) mod p = a^(p-1-sk) mod p by Fermat's Little Theorem (We do that to have positive powers)
             # Note : a^(-sk) mod p = g^(-sk*k) mod p
             a_inv = pow(a, p - 1 - self.private, p)
@@ -247,18 +255,19 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
             # So we get the original m_enc back.
             m_enc = (b * a_inv) % p
             # m_enc = g^m mod p => m = log_g(m_enc) mod p : solve for dlp
-            m = self.discrete_log(g, m_enc, p)
+            m = self.discrete_log(m_enc)
             # Convert to bytes
-            deciphered = m.to_bytes(32, byteorder='big')
+            deciphered = m.to_bytes(self.__psize, byteorder=VoteEncryptionKeys.BYTEORDER)
             return deciphered
         except Exception as e:
             raise CryptoError(f"Deciphering failed: {str(e)}")
     
-    def discrete_log(self, g, h, p):
+    def discrete_log(self, h):
         """
         Solve the dlp bruteforce (assumed in the article that the number of possible
         votes is small, so it's not a problem to do so). Returns x such that g^x = h mod p.
         """
+        p, _, g = self.crypto_params
         current = 1
         for m in range(p):
             if current == h:
@@ -277,6 +286,7 @@ class SigningKeys(AsymmetricCryptographicKey):
     Protocols constants.
     """
     RSA_KEY_SIZE = 2048
+    EXP = 65537
 
     def __init__(self, pub, private=None):
         super().__init__(pub, private)
@@ -287,10 +297,11 @@ class SigningKeys(AsymmetricCryptographicKey):
         Generate a pair of public-private keys for signature.
         """
         private_key = rsa.generate_private_key(
-            public_exponent=65537,
+            public_exponent=SigningKeys.EXP,
             key_size=SigningKeys.RSA_KEY_SIZE
         )
         public_key = private_key.public_key()
+        public_key.verify()
         return SigningKeys(public_key, private_key)
 
     def sign(self, content: CryptoContent) -> SignedContent:
@@ -409,7 +420,7 @@ class PubkeyVerificationContext(VerificationContext):
         self.key = pubkey
 
 
-# Vote proofs knowlegde, correctness and validity of a vote. π_Enc
+# Vote proofs knowledge, correctness and validity of a vote. π_Enc
 
 class VoteVerificationContext(VerificationContext):
     def __init__(self, key: VoteEncryptionKeys, ciphertexts: list[tuple[int, int]]):
@@ -423,10 +434,13 @@ class VoteNIZKPBuildContext(KeyBuildContext):
         super().__init__(key)
         self.vote = vote
 
-"""Chaum-Pedersen on each component:
+
+"""
+Chaum-Pedersen on each component:
         for each j, we proof knowledge of (r_j, v[j]) such that:
         - ct[j][0] = g^{r_j}
-        - ct[j][1] = g^{v[j]} · pk^{r_j}"""
+        - ct[j][1] = g^{v[j]} · pk^{r_j}
+"""
 class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteVerificationContext]):
     @staticmethod
     def generate(ctx: VoteNIZKPBuildContext) -> "VoteNIZKP":

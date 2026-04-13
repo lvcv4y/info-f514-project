@@ -89,7 +89,7 @@ class ElectionAuthority:
         # Normally, voters choose a vote in a given set. We'll mimic that with a function.
         return self.__vote_validator(vote)
 
-    def register_tallier(self, tallier: "Tallier"):  # Maybe passes the pubkey?
+    def register_tallier(self, tallier: "Tallier"):
         if self.__election_started:  # No tallier added during the election.
             return
 
