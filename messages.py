@@ -10,15 +10,14 @@ Same for Vote and Ballot classes (which could be technically considered as netwo
 """
 from typing import override
 
-from crypto import CryptoContent, CipheredContent, VoteEncryptionKeys, TallierKeyShareNIZKP
+from crypto import SignableContent, VoteEncryptionKeys, TallierKeyShareNIZKP, ClearVector
 from network import NetworkMessage
-
 
 """
 Election Authority Messages
 """
 
-class StartElectionMessage(CryptoContent):
+class StartElectionMessage(SignableContent):
     """
     Initial message to start the election. contains cryptographic bases, valid voters, talliers, a "valid vote set"
      and a signature to certify it comes from the election authority.
@@ -61,7 +60,7 @@ class StartElectionMessage(CryptoContent):
         return self.vote_validator
 
 
-class StopElectionMessage(CryptoContent):
+class StopElectionMessage(SignableContent):
     """Stop Election Message class. Empty class."""
     @override
     def as_bytes(self):
@@ -72,7 +71,7 @@ Tallier Messages.
 """
 
 
-class TallierPartialKeyMessage(CryptoContent):
+class TallierPartialKeyMessage(SignableContent):
 
     def __init__(self, tallier_id: str, pub_key: VoteEncryptionKeys, nizkp: TallierKeyShareNIZKP):
         self.__tallier_id = tallier_id
@@ -100,8 +99,8 @@ class TallierPartialKeyMessage(CryptoContent):
         return tid + pkey + nizkp
 
 
-class TallierPartialDecryptionMessage(CryptoContent):
-    def __init__(self, partial_deciphered: CipheredContent, nizkps: list):
+class TallierPartialDecryptionMessage(SignableContent):
+    def __init__(self, partial_deciphered: ClearVector, nizkps: list):
         self.partial_deciphered = partial_deciphered
         self.nizkps = nizkps
 

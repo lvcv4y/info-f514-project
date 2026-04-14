@@ -3,14 +3,14 @@ Tallier related objects and methods.
 """
 from uuid import uuid4
 
-from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, CipheredContent, PubkeyVerificationContext, \
-    TallierKeyShareNIZKP, KeyBuildContext
+from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, \
+    TallierKeyShareNIZKP, KeyBuildContext, CipheredVector, VoteNIZKPVerificationContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
 from authorities import ElectionAuthority, PKI
 from messages import (StartElectionMessage, StopElectionMessage, TallierPartialKeyMessage,
                       TallierPartialDecryptionMessage, BBReadQuery, BBReadResult)
-from vote import Ballot, Vote
+from vote import Ballot
 
 
 class Tallier(NetworkClient):
@@ -109,7 +109,8 @@ class Tallier(NetworkClient):
             ):
                 continue
 
-            if not ballot.nizkp.verify(PubkeyVerificationContext(signing_key)):
+            # TODO refine this shit: the key is the encryption key not the signing key
+            if not ballot.nizkp.verify(VoteNIZKPVerificationContext(signing_key, ballot.vote_cipher)):
                 continue
 
             # The voter ID is legit, the signature and NIZKP are verified.
@@ -132,12 +133,10 @@ class Tallier(NetworkClient):
         # Aggregate, partial decipher and post.
 
         # TODO aggregate
-        aggregate = bytes()
+        aggregate = CipheredVector()
 
-        partial_decipher = CipheredContent(
-            self.__keys.raw_decipher(aggregate),
-            Vote,  # TODO not really a vote, that's an aggregation
-        )
+
+        partial_decipher = self.__keys.partial_decipher(aggregate)
 
         # TODO generate NIZKPs
         nizkps = []

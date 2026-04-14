@@ -1,13 +1,12 @@
 """
 Classes to represent voters and their votes.
 """
-import secrets
 from uuid import uuid4
 from typing import Callable, override
 from functools import reduce
 
-from crypto import SigningKeys, CryptoContent, CipheredContent, SignedContent, VoteEncryptionKeys, VoteNIZKP, \
-    VoteNIZKPBuildContext, PubkeyVerificationContext
+from crypto import (SigningKeys, SignableContent, SignedContent, VoteEncryptionKeys, ClearVector, CipheredVector, \
+                    VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext)
 from network import NetworkClient, Network, NetworkMessage
 from authorities import PKI, ElectionAuthority
 
@@ -15,27 +14,16 @@ from messages import StartElectionMessage, TallierPartialKeyMessage, BBWrite
 from exceptions import UnfinishedSetupPhaseError
 
 
-class Vote(CryptoContent):
+
+class Vote(ClearVector, SignableContent):
     """
     Represents the vote, following the specification given in the paper.
      A Vote is either "abstain" or a tuple (i_1, i_2,... i_n) where i_k is the number of "points"
      a voter gives to a candidate. This tuple can be constrained: for example, with the sum of its element
      being equal to 1 (== only once "point" per voter).
     """
-    def __init__(self, plaintext: list[int], encryption_key: VoteEncryptionKeys):
-        p, q, g = encryption_key.parameters()
-        pk = encryption_key.public_key()
-        self.plaintext = plaintext # Ex [0, 0, 1, 0] for a vote with 4 candidates, where the voter votes for the 3rd one
-        self.randomness = [] # random values associated to decrypt all values in plaintext, used for the NIZKP proof.
-        self.ciphertext = []
-        for v in plaintext:
-            r = secrets.randbelow(q - 1) + 1
-            self.randomness.append(r)
-            c = (pow(g, r, p), (pow(g, v, p)) * pow(pk, r, p) % p)
-            self.ciphertext.append(c)
-
-    def unwrap(self):
-        return self.__inner
+    def __init__(self, plaintext: tuple[int, ...]):
+        super().__init__(plaintext)
 
     @override
     def as_bytes(self) -> bytes:
@@ -43,8 +31,8 @@ class Vote(CryptoContent):
         return bytes()
 
 
-class Ballot(CryptoContent):
-    def __init__(self, voter_id: str, vote_cipher: CipheredContent, nizkp: VoteNIZKP):
+class Ballot(SignableContent):
+    def __init__(self, voter_id: str, vote_cipher: CipheredVector, nizkp: VoteNIZKP):
         self.voter_id = voter_id
         self.vote_cipher = vote_cipher
         self.nizkp = nizkp
@@ -143,11 +131,12 @@ class Voter(NetworkClient):
         # Assume symmetric mul. TODO verify that works
         encryption_key: VoteEncryptionKeys = reduce(lambda k1, k2: k2 * k1, self.__talliers_key_dict.values(), None)
 
-        vote = Vote(self.vote.unwrap(), encryption_key) # TODO unwrap not implemented yet
+        vote = self.vote
+        ciphered, random_vector = encryption_key.cipher(vote)
 
-        nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(vote, encryption_key))
+        nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(encryption_key, vote, ciphered, random_vector))
 
-        ballot = Ballot(self.id, vote.ciphertext, nizkp)
+        ballot = Ballot(self.id, ciphered, nizkp)
 
         message = self.__keys.sign(ballot)
         self.__network.send(BBWrite.with_content(message), self, None)  # Broadcast to find BulletinBoard

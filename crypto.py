@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 Content classes. Used to abstract the formats of data from their usage
 """
 
-class CryptoContent(NetworkMessage):  # NetworkMessage is already abstract
+class SignableContent(NetworkMessage):  # NetworkMessage is already abstract
     """
     General interface, represents any data that might be used for cryptography (signature, clear content, ciphered content).
       The child classes will be used by the key classes to perform data conversion and signature.
@@ -38,7 +38,7 @@ class CryptoContent(NetworkMessage):  # NetworkMessage is already abstract
         pass
 
 
-class BytesContent(CryptoContent):
+class BytesContent(SignableContent):
     """
     Represents any byte-encoded data.
         Link between clear data and crypto-related operations (ciphering, signature, etc.).
@@ -57,41 +57,43 @@ class BytesContent(CryptoContent):
         return self.__inner
 
 
-class ClearContent(CryptoContent):
+class ClearVector(SignableContent):
     """
-    Interface that defines the conversions between crypto-encoded data (typically bytes) and clear data (python object).
+    Represents a clear vector ( m_i )_i.
     """
 
-    # as_bytes already defined by CryptoContent
+    def __init__(self, inner: tuple[int, ...]):
+        self.__inner = inner
 
-    @classmethod
-    @abstractmethod
-    def from_bytes(cls, data: bytes):
-        """
-        Build an instance from bytes. The bytes given have the same format as the one produced by the as_bytes method.
-        """
-        pass
+    def unwrap(self):
+        return self.__inner
+
+    def __getitem__(self, i):
+        return self.__inner[i]
+
+    def as_bytes(self) -> bytes:
+        # TODO implement
+        return bytes()
 
 
-class CipheredContent(BytesContent):
+class CipheredVector(SignableContent):
     """
-    Represents ciphered content.
+    Represents a ciphered Vector ( (h_{1,j}, h_{2,j} )_{j}.
     """
-    def __init__(self, content: bytes, clazz: type[ClearContent]):
-        super().__init__(content)
 
-        # Saves class to be able to rebuild it once deciphered through clazz.from_bytes.
-        self.__class = clazz
+    def __init__(self, ciphered: tuple[tuple[int, int], ...]):
+        self.__ciphered = ciphered
 
-    @property
-    def clazz(self) -> type[ClearContent]:
-        return self.__class
+    def unwrap(self):
+        return self.__ciphered
 
-    def __eq__(self, other):
-        if not isinstance(other, CipheredContent):
-            return False
+    @override
+    def as_bytes(self) -> bytes:
+        # TODO implement
+        return b''
 
-        return self.clazz == other.clazz and self.as_bytes() == other.as_bytes()
+    def __getitem__(self, i):
+        return self.__ciphered[i]
 
 
 class Signature(BytesContent):
@@ -102,7 +104,7 @@ class Signature(BytesContent):
 
 
 class SignedContent(NetworkMessage):
-    def __init__(self, data: CryptoContent, signature: Signature):
+    def __init__(self, data: SignableContent, signature: Signature):
         self.__data = data
         self.__signature = signature
 
@@ -197,70 +199,70 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         product_key = (k1.public * k2.public) % p
         return VoteEncryptionKeys(product_key, None, (p, q, g))
 
-    def cipher(self, content: ClearContent) -> CipheredContent:
+    def __cipher(self, m: int) -> tuple[tuple[int, int], int]:
         """
-        Cipher the given content.
+        Cipher a given integer, following ElGamal exponentiation scheme.
+          Returns ((h1, h2), r), where (h1, h2) is the cipher, and r the random integer used.
+        Note: r is returned for later use in NIZKP. It should be treated carefully.
         """
         try:
             p, q, g = self.crypto_params
-            data_bytes = content.as_bytes()
-            # bytes -> int
-            m = int.from_bytes(data_bytes, byteorder=VoteEncryptionKeys.BYTEORDER)
             m = m % (p - 1)
-            
+
             m_encoded = pow(g, m, p)
 
-            # random k in [1, q-1]
-            k = secrets.randbelow(q - 1) + 1
-            # a = g^k mod p
-            a = pow(g, k, p)
-            # b = m_enc * pk^k mod p
-            b = (m_encoded * pow(self.public, k, p)) % p
-            
-            # Convert to bytes and pack a and b together
-            bytes_a = a.to_bytes(self.__psize, byteorder=VoteEncryptionKeys.BYTEORDER)
-            bytes_b = b.to_bytes(self.__psize, byteorder=VoteEncryptionKeys.BYTEORDER)
-            ciphered = struct.pack(self.__byte_format, bytes_a, bytes_b)
-            return CipheredContent(ciphered, type(content))
+            # random r in [1, q-1]
+            r = secrets.randbelow(q - 1) + 1
+            # a = g^r mod p
+            h1: int = pow(g, r, p)
+            # b = m_enc * pk^r mod p
+            h2: int = (m_encoded * pow(self.public, r, p)) % p
+
+            return (h1, h2), r
         except Exception as e:
             raise CryptoError(f"Ciphering failed: {str(e)}")
 
-    def decipher(self, ciphered: CipheredContent) -> ClearContent:
+    def cipher(self, vote: "Vote") -> tuple["CipheredVector", tuple[int, ...]]:
         """
-        Decipher the given content and restore its instance structure. The current key must be a private key.
+        Cipher the given vote.
         """
-        if not self.is_private():
-            raise KeyNotPrivateError()
+        vals = map(self.__cipher, vote.unwrap())
+        ciphered = tuple(i[0] for i in vals)
+        random = tuple(i[1] for i in vals)
+        return CipheredVector(ciphered), random
 
-        return ciphered.clazz.from_bytes(self.raw_decipher(ciphered.as_bytes()))
 
-    def raw_decipher(self, ciphered: bytes) -> bytes:
+    def __decipher(self, h1h2: tuple[int, int]) -> int:
         """
-        Decipher the given raw bytes, returns the raw deciphered bytes. The current key must be a private key.
+        Decipher the given raw integers. The current key must be a private key.
         """
         if not self.is_private():
             raise KeyNotPrivateError()
 
         try:
+            h1, h2 = h1h2
             p, q, g = self.crypto_params
             # Extract a and b from ciphered bytes
-            bytes_a, bytes_b = struct.unpack(self.__byte_format, ciphered)
-            a = int.from_bytes(bytes_a, VoteEncryptionKeys.BYTEORDER)
-            b = int.from_bytes(bytes_b, VoteEncryptionKeys.BYTEORDER)
-            # Compute a^(-sk) mod p = a^(p-1-sk) mod p by Fermat's Little Theorem (We do that to have positive powers)
-            # Note : a^(-sk) mod p = g^(-sk*k) mod p
-            a_inv = pow(a, p - 1 - self.private, p)
+            # Compute h1^(-sk) mod p = h2^(p-1-sk) mod p by Fermat's Little Theorem (We do that to have positive powers)
+            # Note : h1^(-sk) mod p = g^(-sk*k) mod p
+            h1_inv = pow(h1, p - 1 - self.private, p)
             # Compute m_enc = b * a^(-sk) mod p
-            # Note : b * a^(-sk) mod p = m_enc * pk^k * g^(-sk*k) mod p = m_enc * g^(sk*k) * g^(-sk*k) mod p = m_enc mod p
+            # Note : h2 * h1^(-sk) mod p = m_enc * pk^k * g^(-sk*k) mod p = m_enc * g^(sk*k) * g^(-sk*k) mod p = m_enc mod p
             # So we get the original m_enc back.
-            m_enc = (b * a_inv) % p
+            m_enc = (h2 * h1_inv) % p
             # m_enc = g^m mod p => m = log_g(m_enc) mod p : solve for dlp
-            m = self.discrete_log(m_enc)
-            # Convert to bytes
-            deciphered = m.to_bytes(self.__psize, byteorder=VoteEncryptionKeys.BYTEORDER)
-            return deciphered
+            return self.discrete_log(m_enc)
         except Exception as e:
             raise CryptoError(f"Deciphering failed: {str(e)}")
+
+    def partial_decipher(self, ciphered: CipheredVector) -> ClearVector:
+        """
+        Decipher the given content vector. The current key must be a private key.
+        """
+        if not self.is_private():
+            raise KeyNotPrivateError()
+
+        return ClearVector(tuple(self.__decipher(ci) for ci in ciphered.unwrap()))
     
     def discrete_log(self, h):
         """
@@ -303,7 +305,7 @@ class SigningKeys(AsymmetricCryptographicKey):
         public_key = private_key.public_key()
         return SigningKeys(public_key, private_key)
 
-    def sign(self, content: CryptoContent) -> SignedContent:
+    def sign(self, content: SignableContent) -> SignedContent:
         """
         Sign the given content. The current key must be a private key.
         """
@@ -361,7 +363,7 @@ class BuildContext(ABC):
     pass
 
 
-class NIZKP[B:BuildContext, V: VerificationContext](ClearContent):
+class NIZKP[B:BuildContext, V: VerificationContext](SignableContent):
     """
     Represents a generic Non-Interactive Zero-Knowledge Proof.
     """
@@ -387,11 +389,6 @@ class NIZKP[B:BuildContext, V: VerificationContext](ClearContent):
     @override
     def as_bytes(self) -> bytes:
         return self.__inner
-
-    @override
-    @classmethod
-    def from_bytes(cls, data: bytes):
-        return cls(data)
 
 
 """
@@ -421,17 +418,19 @@ class PubkeyVerificationContext(VerificationContext):
 
 # Vote proofs knowledge, correctness and validity of a vote. π_Enc
 
-class VoteVerificationContext(VerificationContext):
-    def __init__(self, key: VoteEncryptionKeys, ciphertexts: list[tuple[int, int]]):
-        super().__init__()
-        self.key = key
-        self.ciphertexts = ciphertexts
-
-
 class VoteNIZKPBuildContext(KeyBuildContext):
-    def __init__(self, vote: "Vote", key: VoteEncryptionKeys):
+    def __init__(self, key: VoteEncryptionKeys, vote: "Vote", ciphered: CipheredVector, random_vector: tuple[int, ...]):
         super().__init__(key)
         self.vote = vote
+        self.ciphered = ciphered
+        self.random = random_vector
+
+
+class VoteNIZKPVerificationContext(VerificationContext):
+    def __init__(self, key: VoteEncryptionKeys, ciphered: CipheredVector):
+        super().__init__()
+        self.key = key
+        self.ciphered = ciphered
 
 
 """
@@ -440,7 +439,7 @@ Chaum-Pedersen on each component:
         - ct[j][0] = g^{r_j}
         - ct[j][1] = g^{v[j]} · pk^{r_j}
 """
-class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteVerificationContext]):
+class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
     @staticmethod
     def generate(ctx: VoteNIZKPBuildContext) -> "VoteNIZKP":
         """
@@ -456,7 +455,7 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteVerificationContext]):
             raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
         p, q, g = key.crypto_params
         pk = key.public
-        ncandidates = len(ctx.vote.ciphertexts)
+        ncandidates = len(ctx.vote.unwrap())
         # Step 1
         a0 = [secrets.randbelow(q - 1) + 1 for _ in range(ncandidates)]
         a1 = [secrets.randbelow(q - 1) + 1 for _ in range(ncandidates)]
@@ -468,13 +467,13 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteVerificationContext]):
         # Step 2
         c_input = (
             f"{g}{pk}"
-            + "".join(f"{a}{b}" for a, b in ctx.vote.ciphertexts)
+            + "".join(f"{a}{b}" for a, b in ctx.ciphered.unwrap())
             + "".join(f"{t0}{t1}" for t0, t1 in t)
         ).encode()
         c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
         # Step 3
-        s0 = [(a0[j] + c * ctx.vote.randomness[j]) % q for j in range(ncandidates)]
-        s1 = [(a1[j] + c * ctx.vote.plaintext[j]) % q for j in range(ncandidates)]
+        s0 = [(a0[j] + c * ctx.random[j]) % q for j in range(ncandidates)]
+        s1 = [(a1[j] + c * ctx.vote[j]) % q for j in range(ncandidates)]
         # Step 4
         proof = struct.pack(f'>{2*ncandidates}Q', *[item for sublist in t for item in sublist]) + \
                 struct.pack(f'>{ncandidates}Q', *s0) + \
@@ -483,7 +482,7 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteVerificationContext]):
         return VoteNIZKP(proof)
 
     @override
-    def verify(self, ctx: VoteVerificationContext) -> bool:
+    def verify(self, ctx: VoteNIZKPVerificationContext) -> bool:
         """
         Verify the proof as follows:
         1. Extract t and s from proof
@@ -496,7 +495,7 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteVerificationContext]):
             raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
         p, q, g = key.crypto_params
         pk = key.public
-        ncandidates = len(ctx.vote.ciphertexts)
+        ncandidates = len(ctx.ciphered.unwrap())
         # Step 1
         t = []
         for j in range(ncandidates):
@@ -509,13 +508,13 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteVerificationContext]):
         # Step 2
         c_input = (
             f"{g}{pk}"
-            + "".join(f"{a}{b}" for a, b in ctx.vote.ciphertexts)
+            + "".join(f"{a}{b}" for a, b in ctx.ciphered.unwrap())
             + "".join(f"{t0}{t1}" for t0, t1 in t)
         ).encode()
         c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
         # Step 3 and 4
         for j in range(ncandidates):
-            ct_j0, ct_j1 = ctx.vote.ciphertexts[j]
+            ct_j0, ct_j1 = ctx.ciphered[j]
             t_j0_prime = (pow(g, s0[j], p) * pow(ct_j0, p - 1 - c, p)) % p
             t_j1_prime = (pow(g, s1[j], p) * pow(pk, s0[j], p) * pow(ct_j1, p - 1 - c, p)) % p
             if t_j0_prime != t[j][0] or t_j1_prime != t[j][1]:
