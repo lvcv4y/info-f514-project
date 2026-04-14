@@ -6,10 +6,12 @@ Note: for now, signing and ciphering are not compatible: only clear content can 
 """
 from abc import ABC, abstractmethod
 from math import log2, ceil
-from typing import override, TYPE_CHECKING, Literal
+from typing import override, TYPE_CHECKING, Literal, Any
 import secrets
 import struct
 import hashlib
+
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 
@@ -226,7 +228,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         """
         Cipher the given vote.
         """
-        vals = map(self.__cipher, vote.unwrap())
+        vals = [self.__cipher(v) for v in vote.unwrap()]
         ciphered = tuple(i[0] for i in vals)
         random = tuple(i[1] for i in vals)
         return CipheredVector(ciphered), random
@@ -340,7 +342,7 @@ class SigningKeys(AsymmetricCryptographicKey):
                 hashes.SHA256()
             )
             return True
-        except Exception:
+        except InvalidSignature:
             return False
 
 """
@@ -380,14 +382,15 @@ class NIZKP[B:BuildContext, V: VerificationContext](SignableContent):
     def verify(self, ctx: V) -> bool:
         pass
 
-    def __init__(self, inner_bytes):
+    def __init__(self, inner: Any):
         """
         Default constructor. Should only be used in generate method.
         """
-        self.__inner = inner_bytes
+        self.__inner = inner
 
-    @override
-    def as_bytes(self) -> bytes:
+    # as_bytes should be overridden by children classes
+
+    def unwrap(self):
         return self.__inner
 
 
@@ -440,6 +443,8 @@ Chaum-Pedersen on each component:
         - ct[j][1] = g^{v[j]} · pk^{r_j}
 """
 class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
+
+    @override
     @staticmethod
     def generate(ctx: VoteNIZKPBuildContext) -> "VoteNIZKP":
         """
@@ -521,10 +526,17 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
                 return False
         return True
 
+    @override
+    def as_bytes(self) -> bytes:
+        # TODO implement
+        return bytes()
+
 
 # Tallier Key Share: that's only a key-pair NIZKP π_KeyShareGen
 
 class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
+
+    @override
     @staticmethod
     def generate(ctx: KeyBuildContext) -> "TallierKeyShareNIZKP":
         """Fiat-Shamir p72-78 : Proof of knowledge of a valid sk s.t. pk = g^sk.
@@ -552,6 +564,7 @@ class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
         proof = struct.pack('>QQ', t, s)
         return TallierKeyShareNIZKP(proof)
 
+    @override
     def verify(self, ctx: PubkeyVerificationContext) -> bool:
         """Verify the proof (t, s) as follows: 
         1. Compute c = hash(g, pk, t)
@@ -580,6 +593,11 @@ class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
             return True
 
         return False
+
+    @override
+    def as_bytes(self) -> bytes:
+        # TODO implement
+        return bytes()
 
 
 # Tallier Partial Decryption : π_DecShare
@@ -619,6 +637,8 @@ Chaum-Pedersen Proof of correct partial decryption:
 """
 
 class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildContext, TallierPartialDecryptionVerifContext]):
+
+    @override
     @staticmethod
     def generate(ctx: TallierPartialDecryptionNIZKPBuildContext) -> "TallierPartialDecryptionNIZKP":
         """
@@ -658,6 +678,7 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
                 struct.pack(f'>{ncandidates}Q', *s)
         return TallierPartialDecryptionNIZKP(proof)
 
+    @override
     def verify(self, ctx: TallierPartialDecryptionVerifContext) -> bool:
         """
         Verify the proof (t, s) as follows:
@@ -694,3 +715,8 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
             if t_j0_prime != t[j][0] or t_j1_prime != t[j][1]:
                 return False
         return True
+
+    @override
+    def as_bytes(self) -> bytes:
+        # TODO implement
+        return bytes()
