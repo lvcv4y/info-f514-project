@@ -24,7 +24,7 @@ class Tallier(NetworkClient):
         self.__bb_content = None
 
         self.__valid_voters: list[str] | None = None
-        self.__keys: VoteEncryptionKeys | None = None
+        self.__keys = None
 
         self.__id = str(uuid4())
         self.__signing_keys = SigningKeys.generate()
@@ -39,10 +39,10 @@ class Tallier(NetworkClient):
 
             if isinstance(message.data, StartElectionMessage):
                 inner: StartElectionMessage = message.data
-                auth_keys = PKI().get_key_from_client(ElectionAuthority().id)
-                if auth_keys.verify_signature(message):
+                auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
+                if auth_keys is not None and auth_keys.verify_signature(message):
                     # Generate keys
-                    self.__keys = VoteEncryptionKeys(inner.crypto_parameters)
+                    self.__keys: VoteEncryptionKeys = VoteEncryptionKeys.generate_from(*inner.crypto_parameters)
                     self.__valid_voters = inner.voters
 
                     nizkp = TallierKeyShareNIZKP.generate(KeyBuildContext(self.__keys))
@@ -55,9 +55,9 @@ class Tallier(NetworkClient):
                     )
 
             if isinstance(message.data, StopElectionMessage):
-                auth_keys = PKI().get_key_from_client(ElectionAuthority().id)
+                auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
 
-                if auth_keys.verify_signature(message):
+                if auth_keys is not None and auth_keys.verify_signature(message):
                     # Enter tallying process
                     self.__start_tallying = True
 
@@ -93,7 +93,9 @@ class Tallier(NetworkClient):
                 continue
 
             if isinstance(obj.data, StopElectionMessage):
-                if self.__pki.get_key_from_client(ElectionAuthority().id).verify_signature(obj):  # Valid signature
+                auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
+
+                if auth_keys is not None and auth_keys.verify_signature(obj):  # Valid signature
                     break
                 else:
                     continue
