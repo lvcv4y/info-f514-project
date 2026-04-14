@@ -63,36 +63,43 @@ class ClearVector(SignableContent):
     """
     Represents a clear vector ( m_i )_i.
     """
+    BYTEORDER: Literal['big'] = 'big'
 
     def __init__(self, inner: tuple[int, ...]):
         self.__inner = inner
 
-    def unwrap(self):
+    def unwrap(self) -> tuple[int, ...]:
         return self.__inner
 
     def __getitem__(self, i):
         return self.__inner[i]
 
     def as_bytes(self) -> bytes:
-        # TODO implement
-        return bytes()
+        return b''.join(
+            (a.to_bytes(ceil(log2(a)), ClearVector.BYTEORDER))
+            for a in self.unwrap()
+        )
 
 
 class CipheredVector(SignableContent):
     """
     Represents a ciphered Vector ( (h_{1,j}, h_{2,j} )_{j}.
     """
+    BYTEORDER: Literal['big'] = 'big'
 
     def __init__(self, ciphered: tuple[tuple[int, int], ...]):
         self.__ciphered = ciphered
 
-    def unwrap(self):
+    def unwrap(self) -> tuple[tuple[int, int], ...]:
         return self.__ciphered
 
     @override
     def as_bytes(self) -> bytes:
-        # TODO implement
-        return b''
+        return b''.join(
+            (a.to_bytes(ceil(log2(a)), CipheredVector.BYTEORDER)) +
+            (b.to_bytes(ceil(log2(b)), CipheredVector.BYTEORDER))
+            for a, b in self.unwrap()
+        )
 
     def __getitem__(self, i):
         return self.__ciphered[i]

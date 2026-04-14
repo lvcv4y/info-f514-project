@@ -8,7 +8,8 @@ Most of those classes do not directly inherit from NetworkMessage, because they 
 Network abstract classes stays in the network file for convenience and clarity.
 Same for Vote and Ballot classes (which could be technically considered as network messages).
 """
-from typing import override
+from typing import override, Literal
+from math import ceil, log2
 
 from crypto import SignableContent, VoteEncryptionKeys, TallierKeyShareNIZKP, ClearVector
 from network import NetworkMessage
@@ -25,12 +26,15 @@ class StartElectionMessage(SignableContent):
     voters and talliers fields are a list of tuple as: (id, pubkey), where id is their UUID, as string.
     The "valid vote set" is a function that, given a vote, evaluates to True if the vote is valid, and False otherwise.
     """
+    BYTEORDER: Literal['big'] = 'big'
 
     @override
     def as_bytes(self) -> bytes:
-        # TODO encode crypto_parameters and vote_validator (somehow)
-        crypto_params = bytes()
-        vote_validator = bytes()
+        crypto_params = b''.join(
+            (a.to_bytes(ceil(log2(a)), StartElectionMessage.BYTEORDER))
+            for a in self.__crypto_parameters
+        )
+        vote_validator = bytes()  # TODO encode vote_validator (somehow)
         voters = b''.join(i.encode('ascii') for i in self.__voters)
         talliers = b''.join(i.encode('ascii') for i in self.__talliers)
 
@@ -72,6 +76,7 @@ Tallier Messages.
 
 
 class TallierPartialKeyMessage(SignableContent):
+    BYTEORDER: Literal['big'] = 'big'
 
     def __init__(self, tallier_id: str, pub_key: VoteEncryptionKeys, nizkp: TallierKeyShareNIZKP):
         self.__tallier_id = tallier_id
@@ -93,7 +98,7 @@ class TallierPartialKeyMessage(SignableContent):
     @override
     def as_bytes(self) -> bytes:
         tid = self.__tallier_id.encode('ascii')
-        pkey = self.__pub_key.public  # TODO is it really bytes?
+        pkey = self.__pub_key.public.to_bytes(ceil(log2(self.__pub_key.public)), TallierPartialKeyMessage.BYTEORDER)
         nizkp = self.__nizkp.as_bytes()
 
         return tid + pkey + nizkp

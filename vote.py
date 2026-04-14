@@ -15,7 +15,7 @@ from exceptions import UnfinishedSetupPhaseError
 
 
 
-class Vote(ClearVector, SignableContent):
+class Vote(ClearVector):
     """
     Represents the vote, following the specification given in the paper.
      A Vote is either "abstain" or a tuple (i_1, i_2,... i_n) where i_k is the number of "points"
@@ -24,11 +24,6 @@ class Vote(ClearVector, SignableContent):
     """
     def __init__(self, plaintext: tuple[int, ...]):
         super().__init__(plaintext)
-
-    @override
-    def as_bytes(self) -> bytes:
-        # TODO implement
-        return bytes()
 
 
 class Ballot(SignableContent):
