@@ -236,7 +236,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
 
     def __decipher(self, h1h2: tuple[int, int]) -> int:
         """
-        Decipher the given raw integers. The current key must be a private key.
+        Decipher the given raw integers. The current key must be a private key. Debug purposes.
         """
         if not self.is_private():
             raise KeyNotPrivateError()
@@ -257,14 +257,39 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         except Exception as e:
             raise CryptoError(f"Deciphering failed: {str(e)}")
 
-    def partial_decipher(self, ciphered: CipheredVector) -> ClearVector:
+    def decipher(self, ciphered: CipheredVector) -> ClearVector:
         """
-        Decipher the given content vector. The current key must be a private key.
+        Decipher the given content vector. The current key must be a private key. Used for debug purposes.
         """
         if not self.is_private():
             raise KeyNotPrivateError()
 
         return ClearVector(tuple(self.__decipher(ci) for ci in ciphered.unwrap()))
+
+    def __partial_decipher(self, h1: int) -> int:
+        """
+        Given h1, compute h1^sk (partial decipher the vote following the paper protocol).
+          The current key must be a private key.
+        """
+        if not self.is_private():
+            raise KeyNotPrivateError()
+
+        try:
+            p, q, g = self.crypto_params
+            return pow(h1, self.private, p)
+        except Exception as e:
+            raise CryptoError(f"Partial deciphering failed: {str(e)}")
+
+    def partial_decipher(self, ciphered: CipheredVector):
+        """
+        Partially decipher a vote vector (it should be the aggregate of all the votes, according to the paper).
+          This key must be a private key.
+        """
+        if not self.is_private():
+            raise KeyNotPrivateError()
+
+        return ClearVector(tuple(self.__partial_decipher(h1) for h1, h2 in ciphered.unwrap()))
+
     
     def discrete_log(self, h):
         """
