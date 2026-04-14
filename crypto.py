@@ -645,8 +645,8 @@ class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
 
 class TallierPartialDecryptionNIZKPBuildContext(KeyBuildContext):
     def __init__(self, key: VoteEncryptionKeys,
-                 ctaggr: list[tuple[int,int]],
-                 partial_dec: list[int]):
+                 ctaggr: CipheredVector,
+                 partial_dec: ClearVector):
         """
         key         : tallier's sk
         ctaggr      : aggregated vector [(h1_j, h2_j), ...]
@@ -659,8 +659,8 @@ class TallierPartialDecryptionNIZKPBuildContext(KeyBuildContext):
 
 class TallierPartialDecryptionVerifContext(VerificationContext):
     def __init__(self, enc_key: VoteEncryptionKeys,
-                 ctaggr: list[tuple[int,int]],
-                 partial_dec: list[int]):
+                 ctaggr: CipheredVector,
+                 partial_dec: ClearVector):
         """
         enc_key     : tallier's pk
         ctaggr      : aggregated vector [(h1_j, h2_j), ...]
@@ -696,7 +696,7 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
         p, q, g = key.crypto_params
         pk = key.public
         
-        ncandidates = len(ctx.ctaggr)
+        ncandidates = len(ctx.ctaggr.unwrap())
         # Step 1
         r = [secrets.randbelow(q - 1) + 1 for _ in range(ncandidates)]
         t = []
@@ -707,8 +707,8 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
         # Step 2
         c_input = (
             f"{g}{pk}"
-            + "".join(f"{h1}{h2}" for h1, h2 in ctx.ctaggr)
-            + "".join(f"{ds}" for ds in ctx.partial_dec)
+            + "".join(f"{h1}{h2}" for h1, h2 in ctx.ctaggr.unwrap())
+            + "".join(f"{ds}" for ds in ctx.partial_dec.unwrap())
             + "".join(f"{t0}{t1}" for t0, t1 in t)
         ).encode()
         c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
@@ -732,7 +732,7 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
             raise CryptoError("TallierPartialDecryptionNIZKP requires VoteEncryptionKeys")
         p, q, g = key.crypto_params
         pk = key.public
-        ncandidates = len(ctx.ctaggr)
+        ncandidates = len(ctx.ctaggr.unwrap())
         # Step 1
         t = []
         for j in range(ncandidates):
@@ -742,8 +742,8 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
         s = struct.unpack_from(f'>{ncandidates}Q', self.as_bytes(), offset=s_offset)
         c_input = (
             f"{g}{pk}"
-            + "".join(f"{h1}{h2}" for h1, h2 in ctx.ctaggr)
-            + "".join(f"{ds}" for ds in ctx.partial_dec)
+            + "".join(f"{h1}{h2}" for h1, h2 in ctx.ctaggr.unwrap())
+            + "".join(f"{ds}" for ds in ctx.partial_dec.unwrap())
             + "".join(f"{t0}{t1}" for t0, t1 in t)
         ).encode()
         c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
