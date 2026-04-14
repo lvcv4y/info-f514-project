@@ -598,6 +598,7 @@ class TallierPartialDecryptionNIZKPBuildContext(KeyBuildContext):
         self.ctaggr      = ctaggr
         self.partial_dec = partial_dec
 
+
 class TallierPartialDecryptionVerifContext(VerificationContext):
     def __init__(self, enc_key: VoteEncryptionKeys,
                  ctaggr: list[tuple[int,int]],
@@ -612,10 +613,13 @@ class TallierPartialDecryptionVerifContext(VerificationContext):
         self.ctaggr      = ctaggr
         self.partial_dec = partial_dec
 
-"""Chaum-Pedersen Proof of correct partial decryption:
-    Proove that for each j, ds_j = h1_j^sk and pk = g^sk."""
 
-class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext]):
+"""
+Chaum-Pedersen Proof of correct partial decryption:
+    Proves that for each j, ds_j = h1_j^sk and pk = g^sk.
+"""
+
+class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildContext, TallierPartialDecryptionVerifContext]):
     @staticmethod
     def generate(ctx: TallierPartialDecryptionNIZKPBuildContext) -> "TallierPartialDecryptionNIZKP":
         """
@@ -655,7 +659,7 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
                 struct.pack(f'>{ncandidates}Q', *s)
         return TallierPartialDecryptionNIZKP(proof)
 
-    def verify(self, ctx: PubkeyVerificationContext) -> bool:
+    def verify(self, ctx: TallierPartialDecryptionVerifContext) -> bool:
         """
         Verify the proof (t, s) as follows:
         1. Compute c = hash(g, pk, ctaggr, partial_dec, t) with t[j] = (t_j0, t_j1) for all j

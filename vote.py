@@ -16,6 +16,12 @@ from exceptions import UnfinishedSetupPhaseError
 
 
 class Vote(CryptoContent):
+    """
+    Represents the vote, following the specification given in the paper.
+     A Vote is either "abstain" or a tuple (i_1, i_2,... i_n) where i_k is the number of "points"
+     a voter gives to a candidate. This tuple can be constrained: for example, with the sum of its element
+     being equal to 1 (== only once "point" per voter).
+    """
     def __init__(self, plaintext: list[int], encryption_key: VoteEncryptionKeys):
         p, q, g = encryption_key.parameters()
         pk = encryption_key.public_key()
