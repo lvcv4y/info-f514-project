@@ -535,6 +535,7 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
 # Tallier Key Share: that's only a key-pair NIZKP π_KeyShareGen
 
 class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
+    BYTEORDER: Literal['big'] = 'big'
 
     @override
     @staticmethod
@@ -561,8 +562,7 @@ class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
         #Step 3
         s = (r + c * key.private) % q
         #Step 4
-        proof = struct.pack('>QQ', t, s)
-        return TallierKeyShareNIZKP(proof)
+        return TallierKeyShareNIZKP((t, s))
 
     @override
     def verify(self, ctx: PubkeyVerificationContext) -> bool:
@@ -580,7 +580,7 @@ class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
         p, q, g = key.crypto_params
         pk = key.public
         # Extract t and s from proof
-        t, s = struct.unpack('>QQ', self.as_bytes())
+        t, s = self.unwrap()
         # Step 1
         c_input = f"{g}{pk}{t}".encode()
         c = int.from_bytes(hashlib.sha256(c_input).digest(), byteorder='big')
@@ -589,15 +589,13 @@ class TallierKeyShareNIZKP(NIZKP[KeyBuildContext, PubkeyVerificationContext]):
         pk_inv_c =  pow(pk, p - 1 - c, p)
         t_prime = (pow(g, s, p) * pk_inv_c) % p
         # Step 3
-        if t_prime == t:
-            return True
-
-        return False
+        return t_prime == t
 
     @override
     def as_bytes(self) -> bytes:
-        # TODO implement
-        return bytes()
+        t, s = self.unwrap()
+        return (t.to_bytes(ceil(log2(t)), TallierKeyShareNIZKP.BYTEORDER) +
+                s.to_bytes(ceil(log2(s)), TallierKeyShareNIZKP.BYTEORDER))
 
 
 # Tallier Partial Decryption : π_DecShare
