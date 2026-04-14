@@ -134,9 +134,8 @@ class Tallier(NetworkClient):
 
         # Aggregate, partial decipher and post.
 
-        # TODO aggregate
-        aggregate = CipheredVector()
-
+        # Assume symmetric mul. TODO verify that works
+        aggregate = reduce(lambda k1, k2: k2 * k1, valid_votes.values(), None)
 
         partial_decipher = self.__keys.partial_decipher(aggregate)
 

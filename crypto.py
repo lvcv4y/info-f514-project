@@ -97,6 +97,17 @@ class CipheredVector(SignableContent):
     def __getitem__(self, i):
         return self.__ciphered[i]
 
+    def __mul__(self, other):
+        if other is None:
+            return self
+
+        assert isinstance(other, CipheredVector)
+        return CipheredVector(tuple(
+            ((h11 * h12), (h21 * h22))
+            for h11, h21, h12, h22 in zip(self.unwrap(), other.unwrap())
+        ))
+
+
 
 class Signature(BytesContent):
     """
@@ -161,6 +172,13 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         self.__crypto_params = crypto_params
         self.__psize = ceil(log2(self.__crypto_params[0]))  # ceil(log2(p))
         self.__byte_format = f'>{self.__psize}s{self.__psize}s'
+
+    def __mul__(self, other):
+        if other is None:
+            return self
+
+        assert isinstance(other, VoteEncryptionKeys)
+        return VoteEncryptionKeys.product(self, other)
 
     @property
     def crypto_params(self):
