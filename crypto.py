@@ -5,6 +5,7 @@ Note: for now, signing and ciphering are not compatible: only clear content can 
    cannot be ciphered. To make it possible, SignedContent must extend ClearContent.
 """
 from abc import ABC, abstractmethod
+from functools import reduce
 from math import log2, ceil
 from typing import override, TYPE_CHECKING, Literal, Any
 import secrets
@@ -103,17 +104,6 @@ class CipheredVector(SignableContent):
 
     def __getitem__(self, i):
         return self.__ciphered[i]
-
-    def __mul__(self, other):
-        if other is None:
-            return self
-
-        assert isinstance(other, CipheredVector)
-        return CipheredVector(tuple(
-            ((h11 * h12), (h21 * h22))
-            for h11, h21, h12, h22 in zip(self.unwrap(), other.unwrap())
-        ))
-
 
 
 class Signature(BytesContent):
@@ -278,7 +268,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
             # So we get the original m_enc back.
             m_enc = (h2 * h1_inv) % p
             # m_enc = g^m mod p => m = log_g(m_enc) mod p : solve for dlp
-            return self.discrete_log(m_enc)
+            return self.__discrete_log(m_enc)
         except Exception as e:
             raise CryptoError(f"Deciphering failed: {str(e)}")
 
@@ -305,7 +295,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         except Exception as e:
             raise CryptoError(f"Partial deciphering failed: {str(e)}")
 
-    def partial_decipher(self, ciphered: CipheredVector):
+    def partial_decipher(self, ciphered: CipheredVector) -> ClearVector:
         """
         Partially decipher a vote vector (it should be the aggregate of all the votes, according to the paper).
           This key must be a private key.
@@ -315,8 +305,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
 
         return ClearVector(tuple(self.__partial_decipher(h1) for h1, h2 in ciphered.unwrap()))
 
-    
-    def discrete_log(self, h):
+    def __discrete_log(self, h: int) -> int:
         """
         Solve the dlp bruteforce (assumed in the article that the number of possible
         votes is small, so it's not a problem to do so). Returns x such that g^x = h mod p.
@@ -328,6 +317,83 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
                 return m
             current = (current * g) % p
         raise CryptoError("Discrete log not found")
+
+    def discrete_log(self, vect: ClearVector) -> ClearVector:
+        """
+        Apply DLP bruteforce to every component of a ClearVector.
+        """
+        return ClearVector(tuple(self.__discrete_log(h) for h in vect.unwrap()))
+
+    def __invert(self, vect: ClearVector) -> ClearVector:
+        """
+        Compute the inverse, modulo p, of each h_i. Assuming p is prime.
+        """
+        # Given Little Fermat Theorem, for p prime and h (with h % p != 0): h^(p-1) = 1 [p]
+        # i.e. h^(p-2) is the invert of h.
+        p, _, __ = self.crypto_params
+        assert 0 not in vect.unwrap()
+        return ClearVector(tuple(pow(h, p-2, p) for h in vect.unwrap()))
+
+    def __vect_product(self, vec1: ClearVector | CipheredVector, vec2: ClearVector | CipheredVector):
+        """
+        Multiply two vectors, component by component, modulo p. Both must have the same type.
+
+        Note: The modulo p is the reason why this method is here and not in the respective classes.
+        """
+        if vec1 is None:
+            return vec2
+
+        if vec2 is None:
+            return vec1
+
+        assert type(vec1) is type(vec2), "Both vectors must have the same type."
+
+        p, _, __ = self.crypto_params
+        if isinstance(vec1, ClearVector):
+            return ClearVector(tuple(
+                (m1 * m2) % p
+                for m1, m2 in zip(vec1.unwrap(), vec2.unwrap())
+            ))
+        elif isinstance(vec1, CipheredVector):
+            return CipheredVector(tuple(
+                ((h1[0] * h2[0]) % p, (h1[1] * h2[1]) % p)
+                for h1, h2 in zip(vec1.unwrap(), vec2.unwrap())
+            ))
+        elif vec1 is None:
+            return None
+        else:
+            raise NotImplementedError(f"type {type(vec1)} is not (yet) implemented.")
+
+    def __final_product(self, ctaggr: CipheredVector, decipher_prod_inv: ClearVector) -> ClearVector:
+        """
+        Compute the final product, given ctaggr and the invert of the product of partial deciphers.
+        See the paper for details.
+        """
+        p, _, __ = self.crypto_params
+        return ClearVector(tuple((h[1] * pdsi) % p for h, pdsi in zip(ctaggr.unwrap(), decipher_prod_inv.unwrap())))
+
+    def aggregate[U: ClearVector | CipheredVector](self, vect_list: list[U]) -> U | None:
+        """
+        Homomorphically aggregate the given list of vectors.
+        """
+        return reduce(self.__vect_product, vect_list, None)
+
+    def get_election_result(self, votes: list[CipheredVector], partial_deciphers: list[ClearVector]) -> ClearVector:
+        """
+        Given the partial decipher vectors and the ciphered votes, compute the election results.
+        See the paper for details.
+        """
+        decipher_prod = self.aggregate(partial_deciphers)
+        if decipher_prod is None:
+            raise CryptoError("Decipher product is None (?).")
+
+        ctaggr = self.aggregate(votes)
+        if ctaggr is None:
+            raise CryptoError("Vote product is None (?).")
+
+        inv_dsi = self.__invert(decipher_prod)
+        final = self.__final_product(ctaggr, inv_dsi)
+        return self.discrete_log(final)
 
 
 class SigningKeys(AsymmetricCryptographicKey):

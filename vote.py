@@ -123,7 +123,7 @@ class Voter(NetworkClient):
         if self.__valid_talliers_ids is None or len(self.__talliers_key_dict) != len(self.__valid_talliers_ids):
             raise UnfinishedSetupPhaseError("Talliers missing. Either the vote is too early, or a message has been dropped.")
 
-        # Assume symmetric mul. TODO verify that works
+        # Assume symmetric mul.
         encryption_key: VoteEncryptionKeys = reduce(lambda k1, k2: k2 * k1, self.__talliers_key_dict.values(), None)
 
         vote = self.vote

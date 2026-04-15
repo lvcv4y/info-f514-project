@@ -1,6 +1,7 @@
 """
 Tallier related objects and methods.
 """
+from functools import reduce
 from uuid import uuid4
 
 from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, \
@@ -134,9 +135,7 @@ class Tallier(NetworkClient):
 
         # Aggregate, partial decipher and post.
 
-        # Assume symmetric mul. TODO verify that works
-        aggregate = reduce(lambda k1, k2: k2 * k1, valid_votes.values(), None)
-
+        aggregate = self.__keys.aggregate(valid_votes.values())
         partial_decipher = self.__keys.partial_decipher(aggregate)
 
         # TODO generate NIZKPs
