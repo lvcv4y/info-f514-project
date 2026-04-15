@@ -5,7 +5,8 @@ from functools import reduce
 from uuid import uuid4
 
 from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, \
-    TallierKeyShareNIZKP, KeyBuildContext, CipheredVector, VoteNIZKPVerificationContext
+    TallierKeyShareNIZKP, KeyBuildContext, CipheredVector, VoteNIZKPVerificationContext, TallierPartialDecryptionNIZKP, \
+    TallierPartialDecryptionNIZKPBuildContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
 from authorities import ElectionAuthority, PKI
@@ -138,10 +139,11 @@ class Tallier(NetworkClient):
         aggregate = self.__keys.aggregate(valid_votes.values())
         partial_decipher = self.__keys.partial_decipher(aggregate)
 
-        # TODO generate NIZKPs
-        nizkps = []
+        nizkp = TallierPartialDecryptionNIZKP.generate(TallierPartialDecryptionNIZKPBuildContext(
+            self.__keys, aggregate, partial_decipher
+        ))
 
-        msg = TallierPartialDecryptionMessage(partial_decipher, nizkps)
+        msg = TallierPartialDecryptionMessage(partial_decipher, nizkp)
         self.__network.send(
             self.__signing_keys.sign(msg),
             self,

@@ -11,7 +11,7 @@ Same for Vote and Ballot classes (which could be technically considered as netwo
 from typing import override, Literal
 from math import ceil, log2
 
-from crypto import SignableContent, VoteEncryptionKeys, TallierKeyShareNIZKP, ClearVector
+from crypto import SignableContent, VoteEncryptionKeys, TallierKeyShareNIZKP, ClearVector, TallierPartialDecryptionNIZKP
 from network import NetworkMessage
 
 """
@@ -105,14 +105,13 @@ class TallierPartialKeyMessage(SignableContent):
 
 
 class TallierPartialDecryptionMessage(SignableContent):
-    def __init__(self, partial_deciphered: ClearVector, nizkps: list):
+    def __init__(self, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
         self.partial_deciphered = partial_deciphered
-        self.nizkps = nizkps
+        self.nizkp = nizkp
 
     @override
     def as_bytes(self) -> bytes:
-        nizkps = bytes()  # TODO manage nizkps
-        return self.partial_deciphered.as_bytes() + nizkps
+        return self.partial_deciphered.as_bytes() + self.nizkp.as_bytes()
 
 """
 Bulletin Board Messages
