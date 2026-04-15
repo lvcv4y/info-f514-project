@@ -464,7 +464,6 @@ class SigningKeys(AsymmetricCryptographicKey):
 """
 NIZKPs abstract classes
 """
-#TBD
 
 # Verification contexts
 class VerificationContext(ABC):
@@ -559,6 +558,7 @@ Chaum-Pedersen on each component:
         - ct[j][1] = g^{v[j]} · pk^{r_j}
 """
 class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
+    BYTEORDER: Literal['big'] = 'big'
 
     @override
     @staticmethod
@@ -596,9 +596,7 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
         s0 = [(a0[j] + c * ctx.random[j]) % q for j in range(ncandidates)]
         s1 = [(a1[j] + c * ctx.vote[j]) % q for j in range(ncandidates)]
         # Step 4
-        proof = struct.pack(f'>{2*ncandidates}Q', *[item for sublist in t for item in sublist]) + \
-                struct.pack(f'>{ncandidates}Q', *s0) + \
-                struct.pack(f'>{ncandidates}Q', *s1)
+        proof = (t, s0, s1)
 
         return VoteNIZKP(proof)
 
@@ -618,14 +616,7 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
         pk = key.public
         ncandidates = len(ctx.ciphered.unwrap())
         # Step 1
-        t = []
-        for j in range(ncandidates):
-            t_j0, t_j1 = struct.unpack_from(f'>QQ', self.as_bytes(), offset=j*16)
-            t.append((t_j0, t_j1))
-        s0_offset = ncandidates * 16
-        s1_offset = s0_offset + ncandidates * 8
-        s0 = struct.unpack_from(f'>{ncandidates}Q', self.as_bytes(), offset=s0_offset)
-        s1 = struct.unpack_from(f'>{ncandidates}Q', self.as_bytes(), offset=s1_offset)
+        t, s0, s1 = self.unwrap()
         # Step 2
         c_input = (
             f"{g}{pk}"
@@ -644,8 +635,12 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
 
     @override
     def as_bytes(self) -> bytes:
-        # TODO implement
-        return bytes()
+        t, s0, s1 = self.unwrap()
+        return (
+            b''.join((t0.to_bytes(ceil(log2(t0)), VoteNIZKP.BYTEORDER) + t1.to_bytes(ceil(log2(t1)), VoteNIZKP.BYTEORDER)) for t0, t1 in t) 
+            + b''.join(s0_j.to_bytes(ceil(log2(s0_j)), VoteNIZKP.BYTEORDER) for s0_j in s0 ) 
+            + b''.join(s1_j.to_bytes(ceil(log2(s1_j)), VoteNIZKP.BYTEORDER) for s1_j in s1))
+
 
 
 # Tallier Key Share: that's only a key-pair NIZKP π_KeyShareGen
@@ -751,6 +746,7 @@ Chaum-Pedersen Proof of correct partial decryption:
 """
 
 class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildContext, TallierPartialDecryptionVerifContext]):
+    BYTEORDER: Literal['big'] = 'big'
 
     @override
     @staticmethod
@@ -788,8 +784,7 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
         # Step 3
         s = [(r[j] + c * key.private) % q for j in range(ncandidates)]
         # Step 4
-        proof = struct.pack(f'>{2*ncandidates}Q', *[item for sublist in t for item in sublist]) + \
-                struct.pack(f'>{ncandidates}Q', *s)
+        proof = (t, s)
         return TallierPartialDecryptionNIZKP(proof)
 
     @override
@@ -807,12 +802,7 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
         pk = key.public
         ncandidates = len(ctx.ctaggr.unwrap())
         # Step 1
-        t = []
-        for j in range(ncandidates):
-            t_j0, t_j1 = struct.unpack_from(f'>QQ', self.as_bytes(), offset=j*16)
-            t.append((t_j0, t_j1))
-        s_offset = ncandidates * 16
-        s = struct.unpack_from(f'>{ncandidates}Q', self.as_bytes(), offset=s_offset)
+        t, s = self.unwrap()
         c_input = (
             f"{g}{pk}"
             + "".join(f"{h1}{h2}" for h1, h2 in ctx.ctaggr.unwrap())
@@ -832,5 +822,8 @@ class TallierPartialDecryptionNIZKP(NIZKP[TallierPartialDecryptionNIZKPBuildCont
 
     @override
     def as_bytes(self) -> bytes:
-        # TODO implement
-        return bytes()
+        t, s = self.unwrap()
+        return (
+            b''.join((t0.to_bytes(ceil(log2(t0)), TallierPartialDecryptionNIZKP.BYTEORDER) + t1.to_bytes(ceil(log2(t1)), TallierPartialDecryptionNIZKP.BYTEORDER)) for t0, t1 in t) 
+            + b''.join(s_j.to_bytes(ceil(log2(s_j)), TallierPartialDecryptionNIZKP.BYTEORDER) for s_j in s))
+
