@@ -536,9 +536,10 @@ class PubkeyVerificationContext(VerificationContext):
 
 # Vote proofs knowledge, correctness and validity of a vote. π_Enc
 
-class VoteNIZKPBuildContext(KeyBuildContext):
+class VoteNIZKPBuildContext(BuildContext):
     def __init__(self, key: VoteEncryptionKeys, vote: "Vote", ciphered: CipheredVector, random_vector: tuple[int, ...]):
-        super().__init__(key)
+        super().__init__()
+        self.key = key  # Do not inherit KeyBuildContext: the key is not private.
         self.vote = vote
         self.ciphered = ciphered
         self.random = random_vector
