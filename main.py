@@ -1,3 +1,3 @@
-from network import Network
+from tests.crypto_tests import vote_process
 
-print(Network() is Network())
+vote_process(votes_n = 4, talliers_n = 3)
