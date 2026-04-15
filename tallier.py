@@ -1,16 +1,18 @@
 """
 Tallier related objects and methods.
 """
+from functools import reduce
 from uuid import uuid4
 
-from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, CipheredContent, PubkeyVerificationContext, \
-    TallierKeyShareNIZKP, KeyBuildContext
+from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, \
+    TallierKeyShareNIZKP, KeyBuildContext, CipheredVector, VoteNIZKPVerificationContext, TallierPartialDecryptionNIZKP, \
+    TallierPartialDecryptionNIZKPBuildContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
 from authorities import ElectionAuthority, PKI
 from messages import (StartElectionMessage, StopElectionMessage, TallierPartialKeyMessage,
                       TallierPartialDecryptionMessage, BBReadQuery, BBReadResult)
-from vote import Ballot, Vote
+from vote import Ballot
 
 
 class Tallier(NetworkClient):
@@ -24,7 +26,7 @@ class Tallier(NetworkClient):
         self.__bb_content = None
 
         self.__valid_voters: list[str] | None = None
-        self.__keys: VoteEncryptionKeys | None = None
+        self.__keys = None
 
         self.__id = str(uuid4())
         self.__signing_keys = SigningKeys.generate()
@@ -39,10 +41,10 @@ class Tallier(NetworkClient):
 
             if isinstance(message.data, StartElectionMessage):
                 inner: StartElectionMessage = message.data
-                auth_keys = PKI().get_key_from_client(ElectionAuthority().id)
-                if auth_keys.verify_signature(message):
+                auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
+                if auth_keys is not None and auth_keys.verify_signature(message):
                     # Generate keys
-                    self.__keys = VoteEncryptionKeys(inner.crypto_parameters)
+                    self.__keys: VoteEncryptionKeys = VoteEncryptionKeys.generate_from(*inner.crypto_parameters)
                     self.__valid_voters = inner.voters
 
                     nizkp = TallierKeyShareNIZKP.generate(KeyBuildContext(self.__keys))
@@ -55,9 +57,9 @@ class Tallier(NetworkClient):
                     )
 
             if isinstance(message.data, StopElectionMessage):
-                auth_keys = PKI().get_key_from_client(ElectionAuthority().id)
+                auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
 
-                if auth_keys.verify_signature(message):
+                if auth_keys is not None and auth_keys.verify_signature(message):
                     # Enter tallying process
                     self.__start_tallying = True
 
@@ -93,7 +95,9 @@ class Tallier(NetworkClient):
                 continue
 
             if isinstance(obj.data, StopElectionMessage):
-                if self.__pki.get_key_from_client(ElectionAuthority().id).verify_signature(obj):  # Valid signature
+                auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
+
+                if auth_keys is not None and auth_keys.verify_signature(obj):  # Valid signature
                     break
                 else:
                     continue
@@ -109,7 +113,8 @@ class Tallier(NetworkClient):
             ):
                 continue
 
-            if not ballot.nizkp.verify(PubkeyVerificationContext(signing_key)):
+            # TODO refine this shit: the key is the encryption key not the signing key
+            if not ballot.nizkp.verify(VoteNIZKPVerificationContext(signing_key, ballot.vote_cipher)):
                 continue
 
             # The voter ID is legit, the signature and NIZKP are verified.
@@ -131,18 +136,14 @@ class Tallier(NetworkClient):
 
         # Aggregate, partial decipher and post.
 
-        # TODO aggregate
-        aggregate = bytes()
+        aggregate = self.__keys.aggregate(valid_votes.values())
+        partial_decipher = self.__keys.partial_decipher(aggregate)
 
-        partial_decipher = CipheredContent(
-            self.__keys.raw_decipher(aggregate),
-            Vote,  # TODO not really a vote, that's an aggregation
-        )
+        nizkp = TallierPartialDecryptionNIZKP.generate(TallierPartialDecryptionNIZKPBuildContext(
+            self.__keys, aggregate, partial_decipher
+        ))
 
-        # TODO generate NIZKPs
-        nizkps = []
-
-        msg = TallierPartialDecryptionMessage(partial_decipher, nizkps)
+        msg = TallierPartialDecryptionMessage(partial_decipher, nizkp)
         self.__network.send(
             self.__signing_keys.sign(msg),
             self,

@@ -5,8 +5,8 @@ from uuid import uuid4
 from typing import Callable, override
 from functools import reduce
 
-from crypto import SigningKeys, CryptoContent, CipheredContent, SignedContent, VoteEncryptionKeys, VoteNIZKP, \
-    VoteNIZKPBuildContext, PubkeyVerificationContext
+from crypto import (SigningKeys, SignableContent, SignedContent, VoteEncryptionKeys, ClearVector, CipheredVector, \
+                    VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext)
 from network import NetworkClient, Network, NetworkMessage
 from authorities import PKI, ElectionAuthority
 
@@ -14,21 +14,20 @@ from messages import StartElectionMessage, TallierPartialKeyMessage, BBWrite
 from exceptions import UnfinishedSetupPhaseError
 
 
-class Vote(CryptoContent):
-    def __init__(self, inner_tuple):
-        self.__inner =  inner_tuple
-    
-    def unwrap(self):
-        return self.__inner
 
-    @override
-    def as_bytes(self) -> bytes:
-        # TODO implement
-        return bytes()
+class Vote(ClearVector):
+    """
+    Represents the vote, following the specification given in the paper.
+     A Vote is either "abstain" or a tuple (i_1, i_2,... i_n) where i_k is the number of "points"
+     a voter gives to a candidate. This tuple can be constrained: for example, with the sum of its element
+     being equal to 1 (== only once "point" per voter).
+    """
+    def __init__(self, plaintext: tuple[int, ...]):
+        super().__init__(plaintext)
 
 
-class Ballot(CryptoContent):
-    def __init__(self, voter_id: str, vote_cipher: CipheredContent, nizkp: VoteNIZKP):
+class Ballot(SignableContent):
+    def __init__(self, voter_id: str, vote_cipher: CipheredVector, nizkp: VoteNIZKP):
         self.voter_id = voter_id
         self.vote_cipher = vote_cipher
         self.nizkp = nizkp
@@ -124,16 +123,15 @@ class Voter(NetworkClient):
         if self.__valid_talliers_ids is None or len(self.__talliers_key_dict) != len(self.__valid_talliers_ids):
             raise UnfinishedSetupPhaseError("Talliers missing. Either the vote is too early, or a message has been dropped.")
 
-        # Assume symmetric mul. TODO verify that works
+        # Assume symmetric mul.
         encryption_key: VoteEncryptionKeys = reduce(lambda k1, k2: k2 * k1, self.__talliers_key_dict.values(), None)
 
         vote = self.vote
-        ciphered_vote = encryption_key.cipher(vote)
+        ciphered, random_vector = encryption_key.cipher(vote)
 
-        nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(vote, self.__keys))
+        nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(encryption_key, vote, ciphered, random_vector))
 
-        ballot = Ballot(self.id, ciphered_vote, nizkp)
+        ballot = Ballot(self.id, ciphered, nizkp)
 
         message = self.__keys.sign(ballot)
         self.__network.send(BBWrite.with_content(message), self, None)  # Broadcast to find BulletinBoard
-
