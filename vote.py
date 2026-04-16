@@ -47,7 +47,13 @@ class Voter(NetworkClient):
     Basic voter implementation.
     """
 
-    def __init__(self, name: str = None, vote: Vote = None, vote_func: Callable[["Voter"], Vote] = None, network: Network = None):
+    def __init__(self,
+                 name: str = None,
+                 vote: Vote = None,
+                 vote_func: Callable[["Voter"], Vote] = None,
+                 network: Network = None,
+                 self_register_network: bool = True
+        ):
         assert vote is not None or vote_func is not None, "Each voter must have either a (static) vote or a voting function."
         super().__init__()
         self.__network = Network() if network is None else network
@@ -65,6 +71,9 @@ class Voter(NetworkClient):
         self.__last_posted_vote = None
         self.__valid_talliers_ids = None
         self.__talliers_key_dict = None
+
+        if self_register_network:
+            self.__network.register(self)
 
     @property
     def id(self):
