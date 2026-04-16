@@ -105,7 +105,8 @@ class TallierPartialKeyMessage(SignableContent):
 
 
 class TallierPartialDecryptionMessage(SignableContent):
-    def __init__(self, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
+    def __init__(self, tallier_id: str, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
+        self.tallier_id = tallier_id
         self.partial_deciphered = partial_deciphered
         self.nizkp = nizkp
 

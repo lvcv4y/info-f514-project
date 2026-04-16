@@ -146,7 +146,7 @@ class Tallier(NetworkClient):
             self.__keys, aggregate, partial_decipher
         ))
 
-        msg = TallierPartialDecryptionMessage(partial_decipher, nizkp)
+        msg = TallierPartialDecryptionMessage(self.id, partial_decipher, nizkp)
         self.__network.send(
             self.__signing_keys.sign(msg),
             self,
