@@ -130,6 +130,7 @@ class Voter(NetworkClient):
         vote = self.vote
         ciphered, random_vector = encryption_key.cipher(vote)
 
+        # TODO fix: VoteNIZKP wrongly use vote encryption key. Use signature key instead.
         nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(encryption_key, vote, ciphered, random_vector))
 
         ballot = Ballot(self.id, ciphered, nizkp)

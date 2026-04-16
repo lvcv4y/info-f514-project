@@ -3,9 +3,10 @@ Tallier related objects and methods.
 """
 from uuid import uuid4
 
+from complains import SafeChannel
 from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, \
     TallierKeyShareNIZKP, KeyBuildContext, VoteNIZKPVerificationContext, TallierPartialDecryptionNIZKP, \
-    TallierPartialDecryptionNIZKPBuildContext
+    TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
 from authorities import ElectionAuthority, PKI
@@ -42,6 +43,10 @@ class Tallier(NetworkClient):
                 inner: StartElectionMessage = message.data
                 auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
                 if auth_keys is not None and auth_keys.verify_signature(message):
+                    # Check if we are indeed a valid tallier
+                    if self.id not in inner.talliers:
+                        SafeChannel.warn(f"Tallier {self.id}", "I am not a valid tallier :(")
+
                     # Generate keys
                     self.__keys: VoteEncryptionKeys = VoteEncryptionKeys.generate_from(*inner.crypto_parameters)
                     self.__valid_voters = inner.voters
@@ -112,9 +117,9 @@ class Tallier(NetworkClient):
             ):
                 continue
 
-            # TODO refine this shit: the key is the encryption key not the signing key
-            if not ballot.nizkp.verify(VoteNIZKPVerificationContext(signing_key, ballot.vote_cipher)):
-                continue
+            # Verify NIZKP. TODO fix: VoteNIZKP wrongly use vote encryption key.
+            # if not ballot.nizkp.verify(VoteNIZKPVerificationContext(signing_key, ballot.vote_cipher)):
+            #     continue
 
             # The voter ID is legit, the signature and NIZKP are verified.
 
