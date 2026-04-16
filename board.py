@@ -16,10 +16,10 @@ class BulletinBoard(NetworkClient):
     Represent a (legit) bulletin board. It is actually a wrapper around a bulletin board state,
         which is just an append-only list of BulletinMessage.
     """
-    def __init__(self, network: Network):
+    def __init__(self, network: Network = None):
         super().__init__()
-        self.__network = network
-        network.register(self)
+        self.__network = network if network is not None else Network()
+        self.__network.register(self)
         self.__state: list[BBMessage] = []
     
     def  on_receive(self, message: NetworkMessage, src: NetworkClient = None):
