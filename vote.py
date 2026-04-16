@@ -5,6 +5,7 @@ from uuid import uuid4
 from typing import Callable, override
 from functools import reduce
 
+from complains import SafeChannel
 from crypto import (SigningKeys, SignableContent, SignedContent, VoteEncryptionKeys, ClearVector, CipheredVector, \
                     VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext)
 from network import NetworkClient, Network, NetworkMessage
@@ -96,7 +97,7 @@ class Voter(NetworkClient):
                     return
 
                 if self.id not in inner.voters:
-                    # Oi, wdym I'm not a valid voter?? TODO fill complain?
+                    SafeChannel.complain(f"Voter {self.id}", "I am not a valid voter!")
                     return
 
                 self.__valid_talliers_ids = inner.talliers
