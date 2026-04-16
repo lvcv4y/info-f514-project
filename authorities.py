@@ -56,6 +56,11 @@ class ElectionAuthority:
         return cls.instance
 
     def __init__(self, vote_validator: Callable[["Vote"], bool] = None, network: "Network" = None):
+        # Singleton pattern
+        if getattr(self, "_initialized", False):
+            return
+        self._initialized = True
+
         self.__voters = []
         self.__talliers = []
         self.pki = PKI()
@@ -137,7 +142,13 @@ class PKI:
         return cls.instance
 
     def __init__(self):
+        # Singleton pattern
+        if getattr(self, "_initialized", False):
+            return
+        self._initialized = True
+
         self.__key_dict: dict[str, SigningKeys] = dict()
+
 
     def get_client_from_key(self, key: SigningKeys) -> str | None:
         for cid, ck in self.__key_dict.items():

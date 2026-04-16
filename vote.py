@@ -102,7 +102,7 @@ class Voter(NetworkClient):
                 self.__valid_talliers_ids = inner.talliers
                 self.__talliers_key_dict = dict()
 
-            if isinstance(inner, TallierPartialKeyMessage):
+            elif isinstance(inner, TallierPartialKeyMessage):
                 # Verify signature
                 sign_key = PKI().get_key_from_client(inner.tallier_id)
                 if sign_key is None or not sign_key.verify_signature(message):
