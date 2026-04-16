@@ -1,3 +1,3 @@
-from tests.crypto_tests import vote_process
+from tests.complete_tests import complete_normal_vote_test
 
-vote_process(votes_n = 4, talliers_n = 3)
+complete_normal_vote_test()
