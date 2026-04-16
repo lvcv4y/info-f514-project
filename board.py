@@ -8,8 +8,6 @@ Bulletin board related objects and functions.
 # TODO choose.
 from functools import reduce
 
-from keystoneclient.auth.identity.generic import password
-
 from authorities import PKI, ElectionAuthority
 from complains import SafeChannel
 from crypto import SignedContent, TallierPartialDecryptionVerifContext, VoteEncryptionKeys, PubkeyVerificationContext
