@@ -64,6 +64,11 @@ class Network:
         return cls.instance
     
     def __init__(self):
+        # Singleton pattern
+        if getattr(self, "_initialized", False):
+            return
+        self._initialized = True
+
         self.__clients = []
         self.__packet_queue = deque()
         self.__running = False
