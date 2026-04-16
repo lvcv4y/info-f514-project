@@ -95,11 +95,11 @@ class Network:
 
             if pkt.dst is None:  # Broadcast
                 for client in self.__clients:  # Maybe restricts to BB?
-                    client.on_receive(pkt.message, pkt.src)
+                    client.on_receive(pkt.msg, pkt.src)
             elif pkt.dst in self.__clients:  # Registered destination
                 # This condition is weird because it is not an actual (async) network.
                 # In reality, "pkt.dst" wouldn't be enough to actually send a packet to the right destination.
-                pkt.dst.on_receive(pkt.message, pkt.src)
+                pkt.dst.on_receive(pkt.msg, pkt.src)
 
         self.__running = False  # Finished routing for now.
     

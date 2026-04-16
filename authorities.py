@@ -153,7 +153,7 @@ class PKI:
         if client_id in self.__key_dict:
             raise KeyError("This id given was already registered in the PKI.")
 
-        if client_id is not str or not isinstance(key, SigningKeys):
+        if not isinstance(client_id, str) or not isinstance(key, SigningKeys):
             raise AttributeError("Arguments given do not have the right types.")
 
         self.__key_dict[client_id] = key

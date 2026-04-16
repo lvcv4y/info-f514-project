@@ -1,11 +1,10 @@
 """
 Tallier related objects and methods.
 """
-from functools import reduce
 from uuid import uuid4
 
 from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, \
-    TallierKeyShareNIZKP, KeyBuildContext, CipheredVector, VoteNIZKPVerificationContext, TallierPartialDecryptionNIZKP, \
+    TallierKeyShareNIZKP, KeyBuildContext, VoteNIZKPVerificationContext, TallierPartialDecryptionNIZKP, \
     TallierPartialDecryptionNIZKPBuildContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
