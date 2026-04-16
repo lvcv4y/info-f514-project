@@ -11,7 +11,7 @@ from crypto import (SigningKeys, SignableContent, SignedContent, VoteEncryptionK
 from network import NetworkClient, Network, NetworkMessage
 from authorities import PKI, ElectionAuthority
 
-from messages import StartElectionMessage, TallierPartialKeyMessage, BBWrite
+from messages import StartElectionMessage, TallierPartialKeyMessage
 from exceptions import UnfinishedSetupPhaseError
 
 
@@ -136,4 +136,4 @@ class Voter(NetworkClient):
         ballot = Ballot(self.id, ciphered, nizkp)
 
         message = self.__keys.sign(ballot)
-        self.__network.send(BBWrite.with_content(message), self, None)  # Broadcast to find BulletinBoard
+        self.__network.send(message, self, None)  # Broadcast to find BulletinBoard

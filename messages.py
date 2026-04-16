@@ -117,34 +117,12 @@ class TallierPartialDecryptionMessage(SignableContent):
 Bulletin Board Messages
 """
 
-class BBMessage:
-    """
-    Represents a bulletin message.
-    """
-
-    def __init__(self, content):
-        self.content = content
-
-
-class BBWrite(NetworkMessage):
-    @staticmethod
-    def with_content(content):
-        return BBWrite(BBMessage(content))
-
-    def __init__(self, msg: BBMessage):
-        self.__msg = msg
-
-    @property
-    def msg(self):
-        return self.__msg
-
-
 class BBReadQuery(NetworkMessage):
     pass
 
 
 class BBReadResult(NetworkMessage):
-    def __init__(self, state: list[BBMessage]):
+    def __init__(self, state: list[NetworkMessage]):
         self.__state = state
 
     @property

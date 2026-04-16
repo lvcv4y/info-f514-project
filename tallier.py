@@ -5,8 +5,8 @@ from uuid import uuid4
 
 from complains import SafeChannel
 from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, \
-    TallierKeyShareNIZKP, KeyBuildContext, VoteNIZKPVerificationContext, TallierPartialDecryptionNIZKP, \
-    TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext
+    TallierKeyShareNIZKP, KeyBuildContext, TallierPartialDecryptionNIZKP, \
+    TallierPartialDecryptionNIZKPBuildContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
 from authorities import ElectionAuthority, PKI
@@ -94,26 +94,25 @@ class Tallier(NetworkClient):
         valid_votes = {}
 
         for msg in self.__bb_content:
-            obj = msg.content
-            if not isinstance(obj, SignedContent):  # Any message we consider "valid" are signed
+            if not isinstance(msg, SignedContent):  # Any message we consider "valid" are signed
                 continue
 
-            if isinstance(obj.data, StopElectionMessage):
+            if isinstance(msg.data, StopElectionMessage):
                 auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
 
-                if auth_keys is not None and auth_keys.verify_signature(obj):  # Valid signature
+                if auth_keys is not None and auth_keys.verify_signature(msg):  # Valid signature
                     break
                 else:
                     continue
 
-            if not isinstance(obj.data, Ballot):
+            if not isinstance(msg.data, Ballot):
                 continue
 
-            ballot: Ballot = obj.data
+            ballot: Ballot = msg.data
             signing_key = self.__pki.get_key_from_client(ballot.voter_id)
             if (
                 ballot.voter_id not in self.__valid_voters or  # Unknown voter
-                signing_key is None or not signing_key.verify_signature(obj)  # Wrong signature
+                signing_key is None or not signing_key.verify_signature(msg)  # Wrong signature
             ):
                 continue
 
@@ -133,7 +132,7 @@ class Tallier(NetworkClient):
 
             valid_votes[ballot.voter_id] =  ballot.vote_cipher
 
-        if len(valid_votes) != self.__valid_voters:
+        if self.__valid_voters is not None and len(valid_votes) != len(self.__valid_voters):
             # Some votes are missing
             # TODO error message on network?
             raise TallyingError("Missing votes.")
