@@ -30,3 +30,10 @@ class KeyNotPrivateError(Exception):
     """
     def __init__(self):
         super().__init__("The key used is not a private key.")
+
+
+class ResultComputeError(Exception):
+    """
+    A critical anomaly appeared when computing results.
+    """
+    pass
