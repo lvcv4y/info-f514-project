@@ -22,9 +22,9 @@ class BulletinBoard(NetworkClient):
         self.__network.register(self)
         self.__state: list[BBMessage] = []
     
-    def  on_receive(self, message: NetworkMessage, src: NetworkClient = None):
+    def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
         if isinstance(message, BBWrite):
-            self.__write(message.msg.content)
+            self.__write(message.msg)
         
         if isinstance(message, BBReadQuery):
             self.__network.send(BBReadResult(self.__read()), self, src)
