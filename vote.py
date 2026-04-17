@@ -5,12 +5,13 @@ from uuid import uuid4
 from typing import Callable, override
 from functools import reduce
 
+from complains import SafeChannel
 from crypto import (SigningKeys, SignableContent, SignedContent, VoteEncryptionKeys, ClearVector, CipheredVector, \
                     VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext)
 from network import NetworkClient, Network, NetworkMessage
 from authorities import PKI, ElectionAuthority
 
-from messages import StartElectionMessage, TallierPartialKeyMessage, BBWrite
+from messages import StartElectionMessage, TallierPartialKeyMessage
 from exceptions import UnfinishedSetupPhaseError
 
 
@@ -46,10 +47,20 @@ class Voter(NetworkClient):
     Basic voter implementation.
     """
 
-    def __init__(self, name: str = None, vote: Vote = None, vote_func: Callable[["Voter"], Vote] = None, network: Network = None):
+    def __init__(self,
+                 name: str = None,
+                 vote: Vote = None,
+                 vote_func: Callable[["Voter"], Vote] = None,
+                 network: Network = None,
+                 pki: PKI = None,
+                 self_register_network: bool = True,
+                 self_register_pki: bool = True,
+        ):
         assert vote is not None or vote_func is not None, "Each voter must have either a (static) vote or a voting function."
         super().__init__()
         self.__network = Network() if network is None else network
+        self.__pki = PKI() if pki is None else pki
+
         self.name = name
 
         self.__vote = vote
@@ -59,11 +70,16 @@ class Voter(NetworkClient):
 
         # Signing keys
         self.__keys = SigningKeys.generate()
-        PKI().add(self.__id, self.__keys.as_public())
 
         self.__last_posted_vote = None
         self.__valid_talliers_ids = None
         self.__talliers_key_dict = None
+
+        if self_register_network:
+            self.__network.register(self)
+
+        if self_register_pki:
+            self.__pki.add(self.__id, self.__keys.as_public())
 
     @property
     def id(self):
@@ -96,13 +112,13 @@ class Voter(NetworkClient):
                     return
 
                 if self.id not in inner.voters:
-                    # Oi, wdym I'm not a valid voter?? TODO fill complain?
+                    SafeChannel.complain(f"Voter {self.id}", "I am not a valid voter!")
                     return
 
                 self.__valid_talliers_ids = inner.talliers
                 self.__talliers_key_dict = dict()
 
-            if isinstance(inner, TallierPartialKeyMessage):
+            elif isinstance(inner, TallierPartialKeyMessage):
                 # Verify signature
                 sign_key = PKI().get_key_from_client(inner.tallier_id)
                 if sign_key is None or not sign_key.verify_signature(message):
@@ -129,9 +145,10 @@ class Voter(NetworkClient):
         vote = self.vote
         ciphered, random_vector = encryption_key.cipher(vote)
 
+        # TODO fix: VoteNIZKP wrongly use vote encryption key. Use signature key instead.
         nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(encryption_key, vote, ciphered, random_vector))
 
         ballot = Ballot(self.id, ciphered, nizkp)
 
         message = self.__keys.sign(ballot)
-        self.__network.send(BBWrite.with_content(message), self, None)  # Broadcast to find BulletinBoard
+        self.__network.send(message, self, None)  # Broadcast to find BulletinBoard

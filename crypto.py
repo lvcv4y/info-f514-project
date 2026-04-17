@@ -9,7 +9,6 @@ from functools import reduce
 from math import log2, ceil
 from typing import override, TYPE_CHECKING, Literal, Any
 import secrets
-import struct
 import hashlib
 
 from cryptography.exceptions import InvalidSignature

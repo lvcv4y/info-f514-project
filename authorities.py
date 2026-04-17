@@ -56,6 +56,11 @@ class ElectionAuthority:
         return cls.instance
 
     def __init__(self, vote_validator: Callable[["Vote"], bool] = None, network: "Network" = None):
+        # Singleton pattern
+        if getattr(self, "_initialized", False):
+            return
+        self._initialized = True
+
         self.__voters = []
         self.__talliers = []
         self.pki = PKI()
@@ -137,7 +142,13 @@ class PKI:
         return cls.instance
 
     def __init__(self):
+        # Singleton pattern
+        if getattr(self, "_initialized", False):
+            return
+        self._initialized = True
+
         self.__key_dict: dict[str, SigningKeys] = dict()
+
 
     def get_client_from_key(self, key: SigningKeys) -> str | None:
         for cid, ck in self.__key_dict.items():
@@ -153,7 +164,7 @@ class PKI:
         if client_id in self.__key_dict:
             raise KeyError("This id given was already registered in the PKI.")
 
-        if client_id is not str or not isinstance(key, SigningKeys):
+        if not isinstance(client_id, str) or not isinstance(key, SigningKeys):
             raise AttributeError("Arguments given do not have the right types.")
 
         self.__key_dict[client_id] = key

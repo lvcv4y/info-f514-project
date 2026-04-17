@@ -1,11 +1,11 @@
 """
 Tallier related objects and methods.
 """
-from functools import reduce
 from uuid import uuid4
 
+from complains import SafeChannel
 from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, \
-    TallierKeyShareNIZKP, KeyBuildContext, CipheredVector, VoteNIZKPVerificationContext, TallierPartialDecryptionNIZKP, \
+    TallierKeyShareNIZKP, KeyBuildContext, TallierPartialDecryptionNIZKP, \
     TallierPartialDecryptionNIZKPBuildContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage
@@ -17,7 +17,12 @@ from vote import Ballot
 
 class Tallier(NetworkClient):
 
-    def __init__(self, network: Network = None, pki: PKI = None):
+    def __init__(self,
+                 network: Network = None,
+                 pki: PKI = None,
+                 self_register_network: bool = True,
+                 self_register_pki: bool = True
+    ):
         super().__init__()
         self.__network = Network() if network is None else network
         self.__pki = PKI() if pki is None else pki
@@ -30,7 +35,12 @@ class Tallier(NetworkClient):
 
         self.__id = str(uuid4())
         self.__signing_keys = SigningKeys.generate()
-        self.__pki.add(self.__id, self.__signing_keys.as_public())
+
+        if self_register_pki:
+            self.__pki.add(self.__id, self.__signing_keys.as_public())
+
+        if self_register_network:
+            self.__network.register(self)
 
     @property
     def id(self):
@@ -43,6 +53,10 @@ class Tallier(NetworkClient):
                 inner: StartElectionMessage = message.data
                 auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
                 if auth_keys is not None and auth_keys.verify_signature(message):
+                    # Check if we are indeed a valid tallier
+                    if self.id not in inner.talliers:
+                        SafeChannel.warn(f"Tallier {self.id}", "I am not a valid tallier :(")
+
                     # Generate keys
                     self.__keys: VoteEncryptionKeys = VoteEncryptionKeys.generate_from(*inner.crypto_parameters)
                     self.__valid_voters = inner.voters
@@ -90,32 +104,31 @@ class Tallier(NetworkClient):
         valid_votes = {}
 
         for msg in self.__bb_content:
-            obj = msg.content
-            if not isinstance(obj, SignedContent):  # Any message we consider "valid" are signed
+            if not isinstance(msg, SignedContent):  # Any message we consider "valid" are signed
                 continue
 
-            if isinstance(obj.data, StopElectionMessage):
+            if isinstance(msg.data, StopElectionMessage):
                 auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
 
-                if auth_keys is not None and auth_keys.verify_signature(obj):  # Valid signature
+                if auth_keys is not None and auth_keys.verify_signature(msg):  # Valid signature
                     break
                 else:
                     continue
 
-            if not isinstance(obj.data, Ballot):
+            if not isinstance(msg.data, Ballot):
                 continue
 
-            ballot: Ballot = obj.data
+            ballot: Ballot = msg.data
             signing_key = self.__pki.get_key_from_client(ballot.voter_id)
             if (
                 ballot.voter_id not in self.__valid_voters or  # Unknown voter
-                signing_key is None or not signing_key.verify_signature(obj)  # Wrong signature
+                signing_key is None or not signing_key.verify_signature(msg)  # Wrong signature
             ):
                 continue
 
-            # TODO refine this shit: the key is the encryption key not the signing key
-            if not ballot.nizkp.verify(VoteNIZKPVerificationContext(signing_key, ballot.vote_cipher)):
-                continue
+            # Verify NIZKP. TODO fix: VoteNIZKP wrongly use vote encryption key.
+            # if not ballot.nizkp.verify(VoteNIZKPVerificationContext(signing_key, ballot.vote_cipher)):
+            #     continue
 
             # The voter ID is legit, the signature and NIZKP are verified.
 
@@ -129,7 +142,7 @@ class Tallier(NetworkClient):
 
             valid_votes[ballot.voter_id] =  ballot.vote_cipher
 
-        if len(valid_votes) != self.__valid_voters:
+        if self.__valid_voters is not None and len(valid_votes) != len(self.__valid_voters):
             # Some votes are missing
             # TODO error message on network?
             raise TallyingError("Missing votes.")
@@ -143,7 +156,7 @@ class Tallier(NetworkClient):
             self.__keys, aggregate, partial_decipher
         ))
 
-        msg = TallierPartialDecryptionMessage(partial_decipher, nizkp)
+        msg = TallierPartialDecryptionMessage(self.id, partial_decipher, nizkp)
         self.__network.send(
             self.__signing_keys.sign(msg),
             self,

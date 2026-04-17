@@ -105,7 +105,8 @@ class TallierPartialKeyMessage(SignableContent):
 
 
 class TallierPartialDecryptionMessage(SignableContent):
-    def __init__(self, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
+    def __init__(self, tallier_id: str, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
+        self.tallier_id = tallier_id
         self.partial_deciphered = partial_deciphered
         self.nizkp = nizkp
 
@@ -117,34 +118,12 @@ class TallierPartialDecryptionMessage(SignableContent):
 Bulletin Board Messages
 """
 
-class BBMessage:
-    """
-    Represents a bulletin message.
-    """
-
-    def __init__(self, content):
-        self.content = content
-
-
-class BBWrite(NetworkMessage):
-    @staticmethod
-    def with_content(content):
-        return BBWrite(BBMessage(content))
-
-    def __init__(self, msg: BBMessage):
-        self.__msg = msg
-
-    @property
-    def msg(self):
-        return self.__msg
-
-
 class BBReadQuery(NetworkMessage):
     pass
 
 
 class BBReadResult(NetworkMessage):
-    def __init__(self, state: list[BBMessage]):
+    def __init__(self, state: list[NetworkMessage]):
         self.__state = state
 
     @property
