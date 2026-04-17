@@ -52,11 +52,15 @@ class Voter(NetworkClient):
                  vote: Vote = None,
                  vote_func: Callable[["Voter"], Vote] = None,
                  network: Network = None,
-                 self_register_network: bool = True
+                 pki: PKI = None,
+                 self_register_network: bool = True,
+                 self_register_pki: bool = True,
         ):
         assert vote is not None or vote_func is not None, "Each voter must have either a (static) vote or a voting function."
         super().__init__()
         self.__network = Network() if network is None else network
+        self.__pki = PKI() if pki is None else pki
+
         self.name = name
 
         self.__vote = vote
@@ -66,7 +70,6 @@ class Voter(NetworkClient):
 
         # Signing keys
         self.__keys = SigningKeys.generate()
-        PKI().add(self.__id, self.__keys.as_public())
 
         self.__last_posted_vote = None
         self.__valid_talliers_ids = None
@@ -74,6 +77,9 @@ class Voter(NetworkClient):
 
         if self_register_network:
             self.__network.register(self)
+
+        if self_register_pki:
+            self.__pki.add(self.__id, self.__keys.as_public())
 
     @property
     def id(self):

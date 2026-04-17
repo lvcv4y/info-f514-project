@@ -17,7 +17,12 @@ from vote import Ballot
 
 class Tallier(NetworkClient):
 
-    def __init__(self, network: Network = None, pki: PKI = None, self_register_network: bool = True):
+    def __init__(self,
+                 network: Network = None,
+                 pki: PKI = None,
+                 self_register_network: bool = True,
+                 self_register_pki: bool = True
+    ):
         super().__init__()
         self.__network = Network() if network is None else network
         self.__pki = PKI() if pki is None else pki
@@ -30,7 +35,9 @@ class Tallier(NetworkClient):
 
         self.__id = str(uuid4())
         self.__signing_keys = SigningKeys.generate()
-        self.__pki.add(self.__id, self.__signing_keys.as_public())
+
+        if self_register_pki:
+            self.__pki.add(self.__id, self.__signing_keys.as_public())
 
         if self_register_network:
             self.__network.register(self)
