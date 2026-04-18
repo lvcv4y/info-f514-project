@@ -16,6 +16,9 @@ from vote import Ballot
 
 
 class Tallier(NetworkClient):
+    """
+    Basic and legit tallier implementation.
+    """
 
     def __init__(self,
                  network: Network = None,

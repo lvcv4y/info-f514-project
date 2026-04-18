@@ -30,6 +30,18 @@ _G = 2
 
 
 def vote_process(votes_n: int = 2, vote_size: int = 3, vote_range: int = 3, talliers_n : int = 2):
+    """
+    Simulate cryptographic vote steps. Tests cryptographic implementation.
+
+    Args:
+        votes_n (int, optional): Number of votes. Defaults to 2.
+        vote_size (int, optional): Vote vector size. Defaults to 3.
+        vote_range (int, optional): Range of vote value. Defaults to 3.
+        talliers_n (int, optional): Number of talliers. Defaults to 2.
+
+    Raises:
+        ValueError: If incorrect number of votes (<=0) or talliers (<=0).
+    """
     print("[*] Generate votes...")
     votes = []
     for i in range(votes_n):
