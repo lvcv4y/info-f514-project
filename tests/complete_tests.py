@@ -26,7 +26,6 @@ def complete_normal_vote_test(
 
     def logger(_: Network, pkt: NetworkPacket):
         print(f"[-] Packet captured: src={pkt.src}, dst={pkt.dst}, msg={pkt.msg}")
-        print(type(pkt))
         return True, pkt
 
     network.add_tampering(logger)

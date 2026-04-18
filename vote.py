@@ -101,7 +101,6 @@ class Voter(NetworkClient):
 
     @override
     def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
-        # TODO implement
         # BulletinBoard read, ElectionAuthority initial parameters, etc
         if isinstance(message, SignedContent):
             inner = message.data

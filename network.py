@@ -105,7 +105,6 @@ class Network:
             pkt = self.__packet_queue.popleft()  # FIFO packet selection
 
             for f in self.__tamperer:
-                ret = None
                 try:
                     ret = f(self, pkt)
                 except TypeError:
