@@ -86,11 +86,13 @@ class Network:
         self.__tamperer.append(f)
     
     def register(self, client: NetworkClient):
+        """Register a client to the network."""
         if client not in self.__clients:  # No duplicate
             self.__clients.append(client)
     
 
     def unregister(self, client: NetworkClient):
+        """Unregister a client to the network."""
         self.__clients.remove(client)
     
     
@@ -105,7 +107,6 @@ class Network:
             pkt = self.__packet_queue.popleft()  # FIFO packet selection
 
             for f in self.__tamperer:
-                ret = None
                 try:
                     ret = f(self, pkt)
                 except TypeError:

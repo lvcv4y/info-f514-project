@@ -18,6 +18,12 @@ def complete_normal_vote_test(
 ):
     """
     Complete vote process test, without any tampering. Static voters.
+    
+    Args:
+        votes_n (int, optional): Number of votes. Defaults to 2.
+        vote_size (int, optional): Vote vector size. Defaults to 3.
+        vote_range (int, optional): Range of vote value. Defaults to 3.
+        talliers_n (int, optional): Number of talliers. Defaults to 2.
     """
     network = Network()
     pki = PKI()
@@ -26,7 +32,6 @@ def complete_normal_vote_test(
 
     def logger(_: Network, pkt: NetworkPacket):
         print(f"[-] Packet captured: src={pkt.src}, dst={pkt.dst}, msg={pkt.msg}")
-        print(type(pkt))
         return True, pkt
 
     network.add_tampering(logger)

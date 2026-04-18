@@ -7,10 +7,12 @@ Bulletin board related objects and functions.
 # In the latter case, voters should be able to (and, in fact, must) specify in which BB they vote.
 # TODO choose.
 from functools import reduce
+from typing import override
 
 from authorities import PKI, ElectionAuthority
 from complains import SafeChannel
-from crypto import SignedContent, TallierPartialDecryptionVerifContext, VoteEncryptionKeys, PubkeyVerificationContext
+from crypto import SignedContent, TallierPartialDecryptionVerifContext, VoteEncryptionKeys, PubkeyVerificationContext, \
+    ClearVector
 from exceptions import ResultComputeError
 from network import NetworkClient, Network, NetworkMessage
 from messages import BBReadQuery, BBReadResult, StartElectionMessage, TallierPartialDecryptionMessage, \
@@ -32,6 +34,7 @@ class BulletinBoard(NetworkClient):
 
         self.__state: list[NetworkMessage] = []
     
+    @override
     def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
         if isinstance(message, BBReadQuery):
             self.__network.send(BBReadResult(self.__read()), self, src)
@@ -39,12 +42,24 @@ class BulletinBoard(NetworkClient):
             self.__write(message)
 
     def __write(self, message: NetworkMessage):
+        """
+        Add a message to P_BB.
+
+        Args:
+            message (NetworkMessage): Message to add.
+        """
         self.__state.append(message)
     
     def __read(self) -> list[NetworkMessage]:
+        """
+        Get current P_BB state.
+
+        Returns:
+            list[NetworkMessage]: Copy of the current state.
+        """
         return self.__state.copy()
 
-    def debug_get_state(self):
+    def debug_get_state(self) -> list[NetworkMessage]:
         """
         Get the current state, directly from the instance. For debug purposes only.
         """
@@ -53,8 +68,22 @@ class BulletinBoard(NetworkClient):
 
     @staticmethod
     def compute_results(state: list[NetworkMessage], pki: PKI = None, auth: ElectionAuthority = None,
-                        complain_author: str = None):
+                        complain_author: str = None) -> ClearVector:
+        """
+        Given a state of P_BB, (try to) compute the election results.
 
+        Args:
+            state (list[NetworkMessage]): State of P_BB (ie list of NetworkMessage that were sent).
+            pki (PKI, optional): PKI to use. Defaults to singleton.
+            auth (ElectionAuthority, optional): ElectionAuthority instance to use. Defaults to singleton.
+            complain_author (str, optional): Name of the author that calls the function, used in complain channel. If None, doesn't complain.
+
+        Raises:
+            ResultComputeError: On any detected error that prevent the result from being computed.
+
+        Returns:
+            ClearVector: The election results.
+        """
         warn = lambda _: None
 
         if complain_author is not None:

@@ -28,6 +28,9 @@ class Vote(ClearVector):
 
 
 class Ballot(SignableContent):
+    """
+    Represents the triple (vote_id, cipher, nizkp), posted on network on vote. See paper for details.
+    """
     def __init__(self, voter_id: str, vote_cipher: CipheredVector, nizkp: VoteNIZKP):
         self.voter_id = voter_id
         self.vote_cipher = vote_cipher
@@ -82,26 +85,25 @@ class Voter(NetworkClient):
             self.__pki.add(self.__id, self.__keys.as_public())
 
     @property
-    def id(self):
+    def id(self) -> str:
         return self.__id
 
     @property
     def last_posted_vote(self) -> Vote | None:
         """
-        Last vote posted on the network.
+        Get last vote posted on the network.
         """
         return self.__last_posted_vote
 
     @property
     def vote(self) -> Vote:
         """
-        Voter's vote.
+        Get Voter's vote.
         """
         return self.__vote if self.__vote is not None else self.__vote_func(self)
 
     @override
     def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
-        # TODO implement
         # BulletinBoard read, ElectionAuthority initial parameters, etc
         if isinstance(message, SignedContent):
             inner = message.data
@@ -135,6 +137,12 @@ class Voter(NetworkClient):
 
 
     def post_vote(self):
+        """
+        Post vote on network.
+
+        Raises:
+            UnfinishedSetupPhaseError: When the vote cannot be posted as the setup phase didn't finish.
+        """
         # Compute total encryption key.
         if self.__valid_talliers_ids is None or len(self.__talliers_key_dict) != len(self.__valid_talliers_ids):
             raise UnfinishedSetupPhaseError("Talliers missing. Either the vote is too early, or a message has been dropped.")

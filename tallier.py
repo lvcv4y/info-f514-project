@@ -16,6 +16,9 @@ from vote import Ballot
 
 
 class Tallier(NetworkClient):
+    """
+    Basic and legit tallier implementation.
+    """
 
     def __init__(self,
                  network: Network = None,
@@ -43,7 +46,7 @@ class Tallier(NetworkClient):
             self.__network.register(self)
 
     @property
-    def id(self):
+    def id(self) -> str:
         return self.__id
 
     def on_receive(self, message: NetworkMessage, src: NetworkClient = None):

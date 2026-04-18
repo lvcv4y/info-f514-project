@@ -3,7 +3,7 @@ This file gathers the messages sent on the Network by each client.
     Those classes are described in a dedicated file to prevent circular imports.
 
 Most of those classes do not directly inherit from NetworkMessage, because they are sent as
-    SignedContent. Thus, they extend CryptoContent instead (which inherits from NetworkMessage).
+    SignedContent. Thus, they extend SignableContent instead (which inherits from NetworkMessage).
 
 Network abstract classes stays in the network file for convenience and clarity.
 Same for Vote and Ballot classes (which could be technically considered as network messages).
@@ -20,10 +20,9 @@ Election Authority Messages
 
 class StartElectionMessage(SignableContent):
     """
-    Initial message to start the election. contains cryptographic bases, valid voters, talliers, a "valid vote set"
-     and a signature to certify it comes from the election authority.
+    Initial message to start the election. See paper for details.
 
-    voters and talliers fields are a list of tuple as: (id, pubkey), where id is their UUID, as string.
+    voters and talliers fields are a list of IDs.
     The "valid vote set" is a function that, given a vote, evaluates to True if the vote is valid, and False otherwise.
     """
     BYTEORDER: Literal['big'] = 'big'
@@ -40,7 +39,7 @@ class StartElectionMessage(SignableContent):
 
         return crypto_params + vote_validator + voters + talliers
 
-    def __init__(self, crypto_parameters, voters, talliers, vote_validator):
+    def __init__(self, crypto_parameters: tuple[int, int, int], voters: list[str], talliers: list[str], vote_validator):
         super().__init__()
         self.__crypto_parameters = crypto_parameters
         self.__voters = voters
@@ -48,15 +47,15 @@ class StartElectionMessage(SignableContent):
         self.__vote_validator = vote_validator
 
     @property
-    def crypto_parameters(self):
+    def crypto_parameters(self) -> tuple[int, int, int]:
         return self.__crypto_parameters
 
     @property
-    def voters(self):
+    def voters(self) -> list[str]:
         return self.__voters
 
     @property
-    def talliers(self):
+    def talliers(self) -> list[str]:
         return self.__talliers
 
     @property
@@ -67,7 +66,7 @@ class StartElectionMessage(SignableContent):
 class StopElectionMessage(SignableContent):
     """Stop Election Message class. Empty class."""
     @override
-    def as_bytes(self):
+    def as_bytes(self) -> bytes:
         return bytes()  # Maybe add something like the hash of the current instance?
 
 """
@@ -76,6 +75,10 @@ Tallier Messages.
 
 
 class TallierPartialKeyMessage(SignableContent):
+    """
+    Partial key share message sent by talliers. See paper for details.
+    Note: tallier_id was added even though it is not specified in the paper.
+    """
     BYTEORDER: Literal['big'] = 'big'
 
     def __init__(self, tallier_id: str, pub_key: VoteEncryptionKeys, nizkp: TallierKeyShareNIZKP):
@@ -84,15 +87,15 @@ class TallierPartialKeyMessage(SignableContent):
         self.__nizkp = nizkp
 
     @property
-    def tallier_id(self):
+    def tallier_id(self) -> str:
         return self.__tallier_id
 
     @property
-    def pub_key(self):
+    def pub_key(self) -> VoteEncryptionKeys:
         return self.__pub_key
 
     @property
-    def nizkp(self):
+    def nizkp(self) -> TallierKeyShareNIZKP:
         return self.__nizkp
 
     @override
@@ -105,6 +108,9 @@ class TallierPartialKeyMessage(SignableContent):
 
 
 class TallierPartialDecryptionMessage(SignableContent):
+    """
+    Partial decryption message sent by tallier on election end. See paper for details.
+    """
     def __init__(self, tallier_id: str, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
         self.tallier_id = tallier_id
         self.partial_deciphered = partial_deciphered
@@ -119,14 +125,20 @@ Bulletin Board Messages
 """
 
 class BBReadQuery(NetworkMessage):
+    """
+    Read query to get all messages from network. empty class.
+    """
     pass
 
 
 class BBReadResult(NetworkMessage):
+    """
+    Read response that contains messages from network.
+    """
     def __init__(self, state: list[NetworkMessage]):
         self.__state = state
 
     @property
-    def state(self):
+    def state(self) -> list[NetworkMessage]:
         return self.__state
 

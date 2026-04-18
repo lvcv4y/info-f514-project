@@ -77,24 +77,44 @@ class ElectionAuthority:
         return "ELECTION_AUTHORITY"
 
     def register_voter(self, voter: "Voter"):  # Maybe passes the pubkey?
+        """
+        Register a Voter as a "valid" voter.
+
+        Args:
+            voter (Voter): voter to add.
+        """
         if self.__election_started:  # No voter added during the election.
             return
 
         if voter not in self.__voters:
             self.__voters.append(voter)
 
-    def is_valid_voter(self, voter: "Voter"):
+    def is_valid_voter(self, voter: "Voter") -> bool:
         """
         Determines whether the voter is legit: ie if the entity given has the right to vote in this election.
+
+        Args:
+            voter (Voter): Voter to check.
+
+        Returns:
+            bool: Whether the voter is legit.
         """
+        # TODO I think unused. Check and delete.
         return voter in self.__voters
 
 
-    def is_vote_valid(self, vote: "Vote"):
+    def is_vote_valid(self, vote: "Vote") -> bool:
+        # TODO I think unused. Check and delete. Replace with policy.
         # Normally, voters choose a vote in a given set. We'll mimic that with a function.
         return self.__vote_validator(vote)
 
     def register_tallier(self, tallier: "Tallier"):
+        """
+        Register a tallier as a "valid" tallier.
+
+        Args:
+            tallier (Tallier): Tallier to add.
+        """
         if self.__election_started:  # No tallier added during the election.
             return
 
@@ -102,6 +122,11 @@ class ElectionAuthority:
             self.__talliers.append(tallier)
 
     def start_election(self):
+        """
+        Start the election process, following the paper protocol:
+          - Generate cryptographic parameters (in fact, for now, static)
+          - Sends those parameters, valid talliers and voters in a signed message in broadcast on the network.
+        """
         self.__election_started = True
         # Use the cryptographic parameters defined for this election
         crypto_params = (_P, _Q, _G)
@@ -121,6 +146,7 @@ class ElectionAuthority:
         )
 
     def end_election(self):
+        """Ends the election, following the paper protocol: send a signed "stop election" message."""
         self.network.send(
             self.__keys.sign(StopElectionMessage()),
             None,  # ElectionAuthority does not need to listen anything ; at least for now.
@@ -151,6 +177,16 @@ class PKI:
 
 
     def get_client_from_key(self, key: SigningKeys) -> str | None:
+        """
+        Given a signing key, gets the string ID of its owner.
+        Note: for now, unused.
+
+        Args:
+            key (SigningKeys): Unknown signing key.
+
+        Returns:
+            str | None: Either the ID of the key owner, or None if it is unknown to the PKI.
+        """
         for cid, ck in self.__key_dict.items():
             if ck.public == key.public:
                 return cid
@@ -158,9 +194,19 @@ class PKI:
         return None
 
     def get_key_from_client(self, client_id: str) -> SigningKeys | None:
+        """
+        Given the ID of an entity, gets its (public) signing key.
+
+        Args:
+            client_id (str): Entity ID.
+
+        Returns:
+            SigningKeys | None: Either its public signing key, or None if the ID is unknown to the PKI.
+        """
         return self.__key_dict.get(client_id, None)
 
     def __add(self, client_id: str, key: SigningKeys):
+        """Inner add function. See Pki.add for documentation."""
         if client_id in self.__key_dict:
             raise KeyError("This id given was already registered in the PKI.")
 
@@ -170,5 +216,13 @@ class PKI:
         self.__key_dict[client_id] = key
 
     def add(self, client_id: str, key: SigningKeys, nizkp = None):
+        """
+        Register a key to the PKI.
+
+        Args:
+            client_id (str): entity ID.
+            key (SigningKeys): Key.
+            nizkp (NIZKP, optional): NIZKP that the caller is the owner of the key. Defaults to None. For now, unused.
+        """
         # TODO check ZKP to ensure client has the key?
         self.__add(client_id, key)

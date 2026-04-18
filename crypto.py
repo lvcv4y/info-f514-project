@@ -27,36 +27,15 @@ Content classes. Used to abstract the formats of data from their usage
 
 class SignableContent(NetworkMessage):  # NetworkMessage is already abstract
     """
-    General interface, represents any data that might be used for cryptography (signature, clear content, ciphered content).
-      The child classes will be used by the key classes to perform data conversion and signature.
-      Can be extended to allow a given class to be signed.
+    General interface, represents any data that might be signed.
+    Can be extended to allow a given class to be signed.
     """
     @abstractmethod
     def as_bytes(self) -> bytes:
         """
-        Get bytes that represents the current instance content. Might be either encoded data, ciphered data, or
-            a signature.
+        Get bytes that represents the current instance content.
         """
         pass
-
-
-class BytesContent(SignableContent):
-    """
-    Represents any byte-encoded data.
-        Link between clear data and crypto-related operations (ciphering, signature, etc.).
-    """
-    def __init__(self, content: bytes):
-        assert isinstance(content, bytes), """
-            The inner content must be bytes, to allow cryptographic manipulations.
-            To get those bytes, either:
-                - Convert the current object directly into bytes
-                - If it's not a builtin object, extend the ClearContent interface and define the conversion methods.
-        """
-        self.__inner = content
-
-    @override
-    def as_bytes(self) -> bytes:
-        return self.__inner
 
 
 class ClearVector(SignableContent):
@@ -69,9 +48,10 @@ class ClearVector(SignableContent):
         self.__inner = inner
 
     def unwrap(self) -> tuple[int, ...]:
+        """Get inner tuple."""
         return self.__inner
 
-    def __getitem__(self, i):
+    def __getitem__(self, i) -> int:
         return self.__inner[i]
 
     def as_bytes(self) -> bytes:
@@ -91,6 +71,7 @@ class CipheredVector(SignableContent):
         self.__ciphered = ciphered
 
     def unwrap(self) -> tuple[tuple[int, int], ...]:
+        """Get inner tuple."""
         return self.__ciphered
 
     @override
@@ -101,28 +82,38 @@ class CipheredVector(SignableContent):
             for a, b in self.unwrap()
         )
 
-    def __getitem__(self, i):
+    def __getitem__(self, i) -> tuple[int, int]:
         return self.__ciphered[i]
 
 
-class Signature(BytesContent):
+class Signature(SignableContent):
     """
     Represents a signature.
     """
-    pass
+    def __init__(self, inner: bytes):
+        self.__inner = inner
+    
+    @override
+    def as_bytes(self) -> bytes:
+        return self.__inner
 
 
 class SignedContent(NetworkMessage):
+    """
+    Signed data representation, with two fields:
+      - SignedContent.data (SignableContent): the inner data.
+      - SignedContent.signature  (Signature): the signature itself.
+    """
     def __init__(self, data: SignableContent, signature: Signature):
         self.__data = data
         self.__signature = signature
 
     @property
-    def signature(self):
+    def signature(self) -> Signature:
         return self.__signature
 
     @property
-    def data(self):
+    def data(self) -> SignableContent:
         return self.__data
 
 """
@@ -148,16 +139,16 @@ class AsymmetricCryptographicKey(ABC):
             raise KeyNotPrivateError()
         return self.__private
 
-    def is_private(self):
+    def is_private(self) -> bool:
         return self.__private is not None
 
-    def as_public(self):
+    def as_public(self) -> bool:
         return self.__class__(self.__pub, None)
 
 
 class VoteEncryptionKeys(AsymmetricCryptographicKey):
     """
-    ElGamal key pair, used for ballot encryption.
+    Exponential ElGamal key pair, used for ballot encryption.
     """
     BYTEORDER: Literal['big'] = "big"
 
@@ -177,11 +168,11 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         return VoteEncryptionKeys.product(self, other)
 
     @property
-    def crypto_params(self):
+    def crypto_params(self) -> tuple[int, int, int]:
         return self.__crypto_params
 
     @override
-    def as_public(self):
+    def as_public(self) -> VoteEncryptionKeys:
         """Return a public-only version of this key, preserving crypto parameters."""
         return VoteEncryptionKeys(self.public, None, self.__crypto_params)
 
@@ -206,7 +197,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
     @staticmethod
     def product(k1: VoteEncryptionKeys, k2: VoteEncryptionKeys) -> VoteEncryptionKeys:
         """
-        Compute the product of two public keys.
+        Compute the product of two public keys (as ElGamal exponential is homomorphic by *).
         """
         if k1.crypto_params != k2.crypto_params:
             raise CryptoError("Both keys must have been generated with the same cryptographic parameters.")
@@ -220,6 +211,15 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         Cipher a given integer, following ElGamal exponentiation scheme.
           Returns ((h1, h2), r), where (h1, h2) is the cipher, and r the random integer used.
         Note: r is returned for later use in NIZKP. It should be treated carefully.
+
+        Args:
+            m (int): The integer to cipher.
+
+        Raises:
+            CryptoError: On error during cryptographic manipulation.
+
+        Returns:
+            tuple[tuple[int, int], int]: ((h1, h2), r) where (h1, h2) is the cipher, and r the random integer used.
         """
         try:
             p, q, g = self.crypto_params
@@ -241,6 +241,12 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
     def cipher(self, vote: "Vote") -> tuple["CipheredVector", tuple[int, ...]]:
         """
         Cipher the given vote.
+
+        Args:
+            vote (Vote): The vote to cipher.
+
+        Returns:
+            tuple[CipheredVector, tuple[int, ...]]: (ciphered, random) where "random" is the random vector used to cipher the vote.
         """
         vals = [self.__cipher(v) for v in vote.unwrap()]
         ciphered = tuple(i[0] for i in vals)
@@ -250,7 +256,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
 
     def __decipher(self, h1h2: tuple[int, int]) -> int:
         """
-        Decipher the given raw integers. The current key must be a private key. Debug purposes.
+        Decipher the given raw integers, following exponential ElGamal scheme. The current key must be a private key. Debug purposes.
         """
         if not self.is_private():
             raise KeyNotPrivateError()
@@ -273,7 +279,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
 
     def decipher(self, ciphered: CipheredVector) -> ClearVector:
         """
-        Decipher the given content vector. The current key must be a private key. Used for debug purposes.
+        Decipher the given content vector, following exponential ElGamal scheme. The current key must be a private key. Used for debug purposes.
         """
         if not self.is_private():
             raise KeyNotPrivateError()
@@ -284,6 +290,16 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         """
         Given h1, compute h1^sk (partial decipher the vote following the paper protocol).
           The current key must be a private key.
+
+        Args:
+            h1 (int): Integer to partially decipher.
+
+        Raises:
+            KeyNotPrivateError: If the current instance is not a private key.
+            CryptoError: If cryptographic manipulation failed.
+
+        Returns:
+            int: h1^sk.
         """
         if not self.is_private():
             raise KeyNotPrivateError()
@@ -296,8 +312,16 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
 
     def partial_decipher(self, ciphered: CipheredVector) -> ClearVector:
         """
-        Partially decipher a vote vector (it should be the aggregate of all the votes, according to the paper).
-          This key must be a private key.
+        Partially decipher a vote vector. This key must be a private key.
+
+        Args:
+            ciphered (CipheredVector): Vote vector to partially decipher. It should be the aggregate of all the votes, according to the paper.
+
+        Raises:
+            KeyNotPrivateError: If the current instance is not a private key.
+
+        Returns:
+            ClearVector: The partially deciphered vector.
         """
         if not self.is_private():
             raise KeyNotPrivateError()
@@ -306,8 +330,17 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
 
     def __discrete_log(self, h: int) -> int:
         """
-        Solve the dlp bruteforce (assumed in the article that the number of possible
-        votes is small, so it's not a problem to do so). Returns x such that g^x = h mod p.
+        Solve a DLP (Discrete Logarithm Problem) by bruteforce.
+        Note: assumed in the article that the number of possible votes is small, so it's not a problem to do so.
+
+        Args:
+            h (int): Integer to bruteforce (g^x).
+
+        Raises:
+            CryptoError: If the DLP couldn't be solved (?)
+
+        Returns:
+            int: x such that g^x = h mod p
         """
         p, _, g = self.crypto_params
         current = 1
@@ -365,22 +398,43 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
 
     def __final_product(self, ctaggr: CipheredVector, decipher_prod_inv: ClearVector) -> ClearVector:
         """
-        Compute the final product, given ctaggr and the invert of the product of partial deciphers.
-        See the paper for details.
+        Compute the "final product".
+        
+        Args:
+            ctaggr (CipheredVector): Vote aggregated vector.
+            decipher_prod_inv (ClearVector): Invert, modulo p, of the partial deciphers aggregate.
+
+        Returns:
+            ClearVector: The "final product". See the paper for details.
         """
         p, _, __ = self.crypto_params
         return ClearVector(tuple((h[1] * pdsi) % p for h, pdsi in zip(ctaggr.unwrap(), decipher_prod_inv.unwrap())))
 
     def aggregate[U: ClearVector | CipheredVector](self, vect_list: list[U]) -> U | None:
         """
-        Homomorphically aggregate the given list of vectors.
+        Homomorphically aggregate a list of vectors.
+
+        Args:
+            vec_list (list[ClearVector] | list[CipheredVector]): Vectors to aggregate. Must be all the same type, and either CipheredVector or ClearVector.
+
+        Returns:
+            ClearVector | CipheredVector: aggregate. Same type as the vectors given in argument.
         """
         return reduce(self.__vect_product, vect_list, None)
 
     def get_election_result(self, votes: list[CipheredVector], partial_deciphers: list[ClearVector]) -> ClearVector:
         """
-        Given the partial decipher vectors and the ciphered votes, compute the election results.
-        See the paper for details.
+        Compute the election results.
+        
+        Args:
+            votes (list[CipheredVector]): List of ciphered votes.
+            partial_deciphers (list[ClearVector]): List of partial deciphers.
+
+        Raises:
+            CryptoError: If any error on cryptographic manipulation.
+
+        Returns:
+            ClearVector: Election results. See the paper for details.
         """
         decipher_prod = self.aggregate(partial_deciphers)
         if decipher_prod is None:
@@ -443,7 +497,7 @@ class SigningKeys(AsymmetricCryptographicKey):
 
     def verify_signature(self, signed: SignedContent) -> bool:
         """
-        returns True if the given SignedContent has a right signature. Returns False otherwise.
+        Returns True if the given SignedContent has a right signature. Returns False otherwise.
         """
         try:
             data = signed.data.as_bytes()
@@ -459,6 +513,7 @@ class SigningKeys(AsymmetricCryptographicKey):
             return True
         except InvalidSignature:
             return False
+
 
 """
 NIZKPs abstract classes
@@ -479,7 +534,7 @@ class BuildContext(ABC):
     pass
 
 
-class NIZKP[B:BuildContext, V: VerificationContext](SignableContent):
+class NIZKP[B: BuildContext, V: VerificationContext](SignableContent):
     """
     Represents a generic Non-Interactive Zero-Knowledge Proof.
     """
@@ -487,13 +542,28 @@ class NIZKP[B:BuildContext, V: VerificationContext](SignableContent):
     @abstractmethod
     def generate(ctx: B) -> "NIZKP[B, V]":
         """
-        Build the NIZKP given the context. It should build the bytes and pass it to the class constructor.
+        Build the NIZKP given the context. It should compute the "inner" NIZKP and pass it to the class constructor.
           See other implementation for example.
+
+        Args:
+            ctx (B): Build context: holds any additional information required to build a NIZKP.
+
+        Returns:
+            NIZKP[B, V]: Built NIZKP instance.
         """
         pass
 
     @abstractmethod
     def verify(self, ctx: V) -> bool:
+        """
+        Verify the current NIZKP instance.
+
+        Args:
+            ctx (V): Verification context: holds any additional information required to verify the current NIZKP.
+
+        Returns:
+            bool: Whether the NIZKP is verified or not.
+        """
         pass
 
     def __init__(self, inner: Any):
@@ -505,6 +575,7 @@ class NIZKP[B:BuildContext, V: VerificationContext](SignableContent):
     # as_bytes should be overridden by children classes
 
     def unwrap(self):
+        """Get inner NIZKP "cryptographic" data."""
         return self.__inner
 
 
