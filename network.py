@@ -3,6 +3,7 @@ The (untrusted) network-related objects.
 """
 from abc import ABC, abstractmethod
 from collections import deque
+from typing import Callable, Union
 
 
 class NetworkPacket:
@@ -73,6 +74,16 @@ class Network:
         self.__packet_queue = deque()
         self.__running = False
 
+        self.__tamperer = []
+
+    def add_tampering(self, f: Callable[["Network", NetworkPacket], tuple[bool, Union[NetworkPacket, None]]]):
+        """
+        Adds a tampering function. It must take two arguments, the network itself and the packet to tamper with,
+          and must return a tuple (b_keep_on, pkt) where:
+            - b_keep_on is a boolean indicating whether other tampering function must be executed
+            - pkt is the NetworkPacket to route. Could be None to indicate packet drop.
+        """
+        self.__tamperer.append(f)
     
     def register(self, client: NetworkClient):
         if client not in self.__clients:  # No duplicate
@@ -93,7 +104,22 @@ class Network:
         while self.__packet_queue:
             pkt = self.__packet_queue.popleft()  # FIFO packet selection
 
-            # TODO run registered packet tampering
+            for f in self.__tamperer:
+                ret = None
+                try:
+                    ret = f(self, pkt)
+                except TypeError:
+                    raise TypeError("The function signature is not correct: "
+                                    "it must take a Network and a NetworkPacket as arguments.")
+
+                if (not isinstance(ret, tuple) or not len(ret) == 2 or not isinstance(ret[0], bool)
+                        or not isinstance(ret[1], (type(None), NetworkPacket))):
+                    raise TypeError("The function signature is not correct: "
+                                    "it must return a tuple (bool, Union[NetworkPacket, None]).")
+
+                b, pkt = ret
+                if not b or pkt is None:
+                    break
 
             if pkt is None:
                 continue
