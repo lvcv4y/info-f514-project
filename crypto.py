@@ -172,12 +172,12 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         return self.__crypto_params
 
     @override
-    def as_public(self) -> VoteEncryptionKeys:
+    def as_public(self) -> "VoteEncryptionKeys":
         """Return a public-only version of this key, preserving crypto parameters."""
         return VoteEncryptionKeys(self.public, None, self.__crypto_params)
 
     @staticmethod
-    def generate_from(p, q, g) -> VoteEncryptionKeys:
+    def generate_from(p, q, g) -> "VoteEncryptionKeys":
         """
         Generate a pair of ElGamal public-private keys.
         Args:
@@ -195,7 +195,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         return VoteEncryptionKeys(pk, sk, (p, q, g))
 
     @staticmethod
-    def product(k1: VoteEncryptionKeys, k2: VoteEncryptionKeys) -> VoteEncryptionKeys:
+    def product(k1: "VoteEncryptionKeys", k2: "VoteEncryptionKeys") -> "VoteEncryptionKeys":
         """
         Compute the product of two public keys (as ElGamal exponential is homomorphic by *).
         """

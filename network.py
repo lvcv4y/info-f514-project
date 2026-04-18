@@ -6,6 +6,23 @@ from collections import deque
 from typing import Callable, Union
 
 
+class NetworkMessage(ABC):
+    """Network Message abstract class."""
+    pass
+
+
+class NetworkClient(ABC):
+    """
+    Network Client Interface.
+    This represents what the client will actually see on receive.
+    None of those arguments are trustworthy: the Network might have tampered, invented or blocked packets.
+    """
+    
+    @abstractmethod
+    def on_receive(self, message: NetworkMessage, src: "NetworkClient" = None):
+        pass
+
+
 class NetworkPacket:
     """
     High-level Network Message wrapper. This represents how the network "sees" things.
@@ -30,24 +47,6 @@ class NetworkPacket:
     @property
     def msg(self):
         return self.__msg
-
-
-
-class NetworkMessage(ABC):
-    """Network Message abstract class."""
-    pass
-
-
-class NetworkClient(ABC):
-    """
-    Network Client Interface.
-    This represents what the client will actually see on receive.
-    None of those arguments are trustworthy: the Network might have tampered, invented or blocked packets.
-    """
-    
-    @abstractmethod
-    def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
-        pass
 
 
 
