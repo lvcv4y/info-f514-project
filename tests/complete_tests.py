@@ -5,7 +5,7 @@ from random import randint
 
 from authorities import PKI, ElectionAuthority
 from board import BulletinBoard
-from network import Network
+from network import Network, NetworkPacket
 from tallier import Tallier
 from vote import Voter, Vote
 
@@ -24,6 +24,12 @@ def complete_normal_vote_test(
     auth = ElectionAuthority()
     bb = BulletinBoard()
 
+    def logger(_: Network, pkt: NetworkPacket):
+        print(f"[-] Packet captured: src={pkt.src}, dst={pkt.dst}, msg={pkt.msg}")
+        print(type(pkt))
+        return True, pkt
+
+    network.add_tampering(logger)
 
     print("[*] Generate voters...")
     voters = []
