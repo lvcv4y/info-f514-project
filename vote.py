@@ -85,7 +85,7 @@ class Voter(NetworkClient):
             self.__pki.add(self.__id, self.__keys.as_public())
 
     @property
-    def id(self):
+    def id(self) -> str:
         return self.__id
 
     @property

@@ -7,10 +7,12 @@ Bulletin board related objects and functions.
 # In the latter case, voters should be able to (and, in fact, must) specify in which BB they vote.
 # TODO choose.
 from functools import reduce
+from typing import override
 
 from authorities import PKI, ElectionAuthority
 from complains import SafeChannel
-from crypto import SignedContent, TallierPartialDecryptionVerifContext, VoteEncryptionKeys, PubkeyVerificationContext
+from crypto import SignedContent, TallierPartialDecryptionVerifContext, VoteEncryptionKeys, PubkeyVerificationContext, \
+    ClearVector
 from exceptions import ResultComputeError
 from network import NetworkClient, Network, NetworkMessage
 from messages import BBReadQuery, BBReadResult, StartElectionMessage, TallierPartialDecryptionMessage, \
@@ -57,7 +59,7 @@ class BulletinBoard(NetworkClient):
         """
         return self.__state.copy()
 
-    def debug_get_state(self):
+    def debug_get_state(self) -> list[NetworkMessage]:
         """
         Get the current state, directly from the instance. For debug purposes only.
         """

@@ -46,7 +46,7 @@ class Tallier(NetworkClient):
             self.__network.register(self)
 
     @property
-    def id(self):
+    def id(self) -> str:
         return self.__id
 
     def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
