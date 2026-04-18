@@ -51,7 +51,7 @@ class ClearVector(SignableContent):
         """Get inner tuple."""
         return self.__inner
 
-    def __getitem__(self, i):
+    def __getitem__(self, i) -> int:
         return self.__inner[i]
 
     def as_bytes(self) -> bytes:
@@ -82,7 +82,7 @@ class CipheredVector(SignableContent):
             for a, b in self.unwrap()
         )
 
-    def __getitem__(self, i):
+    def __getitem__(self, i) -> tuple[int, int]:
         return self.__ciphered[i]
 
 
@@ -109,11 +109,11 @@ class SignedContent(NetworkMessage):
         self.__signature = signature
 
     @property
-    def signature(self):
+    def signature(self) -> Signature:
         return self.__signature
 
     @property
-    def data(self):
+    def data(self) -> SignableContent:
         return self.__data
 
 """
@@ -139,10 +139,10 @@ class AsymmetricCryptographicKey(ABC):
             raise KeyNotPrivateError()
         return self.__private
 
-    def is_private(self):
+    def is_private(self) -> bool:
         return self.__private is not None
 
-    def as_public(self):
+    def as_public(self) -> bool:
         return self.__class__(self.__pub, None)
 
 
@@ -168,11 +168,11 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         return VoteEncryptionKeys.product(self, other)
 
     @property
-    def crypto_params(self):
+    def crypto_params(self) -> tuple[int, int, int]:
         return self.__crypto_params
 
     @override
-    def as_public(self):
+    def as_public(self) -> VoteEncryptionKeys:
         """Return a public-only version of this key, preserving crypto parameters."""
         return VoteEncryptionKeys(self.public, None, self.__crypto_params)
 
