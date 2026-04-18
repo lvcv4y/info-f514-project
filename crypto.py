@@ -607,19 +607,21 @@ class PubkeyVerificationContext(VerificationContext):
 # Vote proofs knowledge, correctness and validity of a vote. π_Enc
 
 class VoteNIZKPBuildContext(BuildContext):
-    def __init__(self, key: VoteEncryptionKeys, vote: "Vote", ciphered: CipheredVector, random_vector: tuple[int, ...]):
+    def __init__(self, key: VoteEncryptionKeys, signing_key: SigningKeys, vote: "Vote", ciphered: CipheredVector, random_vector: tuple[int, ...]):
         super().__init__()
         self.key = key  # Do not inherit KeyBuildContext: the key is not private.
+        self.signing_key = signing_key
         self.vote = vote
         self.ciphered = ciphered
         self.random = random_vector
 
 
 class VoteNIZKPVerificationContext(VerificationContext):
-    def __init__(self, key: VoteEncryptionKeys, ciphered: CipheredVector):
+    def __init__(self, key: VoteEncryptionKeys, ciphered: CipheredVector, voter_pubkey: rsa.RSAPublicKey):
         super().__init__()
         self.key = key
         self.ciphered = ciphered
+        self.voter_pubkey = voter_pubkey
 
 
 """
@@ -667,9 +669,14 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
         s0 = [(a0[j] + c * ctx.random[j]) % q for j in range(ncandidates)]
         s1 = [(a1[j] + c * ctx.vote[j]) % q for j in range(ncandidates)]
         # Step 4
-        proof = (t, s0, s1)
+        proof = VoteNIZKP((t, s0, s1, b'')) # Empty sig before signing
+        sig_bytes = ctx.signing_key.private.sign(
+            proof.as_bytes(),
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
 
-        return VoteNIZKP(proof)
+        return VoteNIZKP((t, s0, s1, sig_bytes))
 
     @override
     def verify(self, ctx: VoteNIZKPVerificationContext) -> bool:
@@ -683,11 +690,23 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
         key = ctx.key
         if not isinstance(key, VoteEncryptionKeys):
             raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
-        p, q, g = key.crypto_params
+        p, _, g = key.crypto_params
         pk = key.public
         ncandidates = len(ctx.ciphered.unwrap())
         # Step 1
-        t, s0, s1 = self.unwrap()
+        t, s0, s1, sig_bytes = self.unwrap()
+
+        # Verify voter signature
+        try:
+            ctx.voter_pubkey.verify(
+                sig_bytes,
+                VoteNIZKP((t, s0, s1, b'')).as_bytes(),
+                padding.PKCS1v15(),
+                hashes.SHA256()
+            )
+        except InvalidSignature:
+            return False
+
         # Step 2
         c_input = (
             f"{g}{pk}"
@@ -706,13 +725,13 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
 
     @override
     def as_bytes(self) -> bytes:
-        t, s0, s1 = self.unwrap()
+        t, s0, s1, sig_bytes = self.unwrap()
         return (
             b''.join((t0.to_bytes(ceil(log2(t0)), VoteNIZKP.BYTEORDER) + t1.to_bytes(ceil(log2(t1)), VoteNIZKP.BYTEORDER)) for t0, t1 in t) 
             + b''.join(s0_j.to_bytes(ceil(log2(s0_j)), VoteNIZKP.BYTEORDER) for s0_j in s0 ) 
-            + b''.join(s1_j.to_bytes(ceil(log2(s1_j)), VoteNIZKP.BYTEORDER) for s1_j in s1))
-
-
+            + b''.join(s1_j.to_bytes(ceil(log2(s1_j)), VoteNIZKP.BYTEORDER) for s1_j in s1)
+            + sig_bytes
+        )
 
 # Tallier Key Share: that's only a key-pair NIZKP π_KeyShareGen
 
