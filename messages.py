@@ -52,11 +52,11 @@ class StartElectionMessage(SignableContent):
 
     @property
     def voters(self) -> list[str]:
-        return self.__voters
+        return self.__voters.copy()
 
     @property
     def talliers(self) -> list[str]:
-        return self.__talliers
+        return self.__talliers.copy()
 
     @property
     def vote_validator(self):
@@ -140,5 +140,5 @@ class BBReadResult(NetworkMessage):
 
     @property
     def state(self) -> list[NetworkMessage]:
-        return self.__state
+        return self.__state.copy()
 
