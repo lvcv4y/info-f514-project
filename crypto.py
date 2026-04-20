@@ -7,7 +7,7 @@ Note: for now, signing and ciphering are not compatible: only clear content can 
 from abc import ABC, abstractmethod
 from functools import reduce
 from math import log2, ceil
-from typing import override, TYPE_CHECKING, Literal, Any
+from typing import override, TYPE_CHECKING, Literal, Any, Self
 import secrets
 import hashlib
 
@@ -142,7 +142,7 @@ class AsymmetricCryptographicKey(ABC):
     def is_private(self) -> bool:
         return self.__private is not None
 
-    def as_public(self) -> bool:
+    def as_public(self) -> Self:
         return self.__class__(self.__pub, None)
 
 
@@ -617,7 +617,7 @@ class VoteNIZKPBuildContext(BuildContext):
 
 
 class VoteNIZKPVerificationContext(VerificationContext):
-    def __init__(self, key: VoteEncryptionKeys, ciphered: CipheredVector, voter_pubkey: rsa.RSAPublicKey):
+    def __init__(self, key: VoteEncryptionKeys, ciphered: CipheredVector, voter_pubkey: SigningKeys):
         super().__init__()
         self.key = key
         self.ciphered = ciphered
@@ -630,8 +630,32 @@ Chaum-Pedersen on each component:
         - ct[j][0] = g^{r_j}
         - ct[j][1] = g^{v[j]} · pk^{r_j}
 """
+
 class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
     BYTEORDER: Literal['big'] = 'big'
+
+    class InnerSignableContent(SignableContent):
+        """
+        Because the proof uses signature to certify voter's identity, we define an inner class to use
+          the SigningKeys methods.
+        """
+        def __init__(self, t, s0, s1):
+            self.__inner_tuple = (t, s0, s1)
+
+        def unwrap(self):
+            return self.__inner_tuple
+
+        def as_bytes(self) -> bytes:
+            t, s0, s1 = self.unwrap()
+            return (
+                    b''.join(
+                        (t0.to_bytes(ceil(log2(t0)), VoteNIZKP.BYTEORDER) +
+                         t1.to_bytes(ceil(log2(t1)), VoteNIZKP.BYTEORDER))
+                        for t0, t1 in t
+                    )
+                    + b''.join(s0_j.to_bytes(ceil(log2(s0_j)), VoteNIZKP.BYTEORDER) for s0_j in s0)
+                    + b''.join(s1_j.to_bytes(ceil(log2(s1_j)), VoteNIZKP.BYTEORDER) for s1_j in s1)
+            )
 
     @override
     @staticmethod
@@ -669,14 +693,10 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
         s0 = [(a0[j] + c * ctx.random[j]) % q for j in range(ncandidates)]
         s1 = [(a1[j] + c * ctx.vote[j]) % q for j in range(ncandidates)]
         # Step 4
-        proof = VoteNIZKP((t, s0, s1, b'')) # Empty sig before signing
-        sig_bytes = ctx.signing_key.private.sign(
-            proof.as_bytes(),
-            padding.PKCS1v15(),
-            hashes.SHA256()
-        )
 
-        return VoteNIZKP((t, s0, s1, sig_bytes))
+        inner = VoteNIZKP.InnerSignableContent(t, s0, s1)
+        signed_inner = ctx.signing_key.sign(inner)
+        return VoteNIZKP(signed_inner)
 
     @override
     def verify(self, ctx: VoteNIZKPVerificationContext) -> bool:
@@ -694,19 +714,13 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
         pk = key.public
         ncandidates = len(ctx.ciphered.unwrap())
         # Step 1
-        t, s0, s1, sig_bytes = self.unwrap()
+        inner: SignedContent = self.unwrap()
 
         # Verify voter signature
-        try:
-            ctx.voter_pubkey.verify(
-                sig_bytes,
-                VoteNIZKP((t, s0, s1, b'')).as_bytes(),
-                padding.PKCS1v15(),
-                hashes.SHA256()
-            )
-        except InvalidSignature:
+        if not ctx.voter_pubkey.verify_signature(inner):
             return False
 
+        t, s0, s1 = inner.data.unwrap()
         # Step 2
         c_input = (
             f"{g}{pk}"
@@ -725,13 +739,8 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
 
     @override
     def as_bytes(self) -> bytes:
-        t, s0, s1, sig_bytes = self.unwrap()
-        return (
-            b''.join((t0.to_bytes(ceil(log2(t0)), VoteNIZKP.BYTEORDER) + t1.to_bytes(ceil(log2(t1)), VoteNIZKP.BYTEORDER)) for t0, t1 in t) 
-            + b''.join(s0_j.to_bytes(ceil(log2(s0_j)), VoteNIZKP.BYTEORDER) for s0_j in s0 ) 
-            + b''.join(s1_j.to_bytes(ceil(log2(s1_j)), VoteNIZKP.BYTEORDER) for s1_j in s1)
-            + sig_bytes
-        )
+        inner: SignedContent = self.unwrap()
+        return inner.data.as_bytes() + inner.signature.as_bytes()
 
 # Tallier Key Share: that's only a key-pair NIZKP π_KeyShareGen
 
