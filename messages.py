@@ -8,17 +8,73 @@ Most of those classes do not directly inherit from NetworkMessage, because they 
 Network abstract classes stays in the network file for convenience and clarity.
 Same for Vote and Ballot classes (which could be technically considered as network messages).
 """
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import override, Literal
 from math import ceil, log2
 
-from crypto import SignableContent, VoteEncryptionKeys, TallierKeyShareNIZKP, ClearVector, TallierPartialDecryptionNIZKP
-from network import NetworkMessage, NetworkSender
+"""
+Basic messages interfaces
+"""
+
+class Message(ABC):
+    """Message abstract class."""
+    def __init__(self, src: str):
+        self.__src = src
+
+    @property
+    def src(self) -> str:
+        return self.__src
+
+class SignableContent(Message):
+    """
+    General interface, represents any data that might be signed.
+    Can be extended to allow a given class to be signed.
+    """
+    @abstractmethod
+    def as_bytes(self) -> bytes:
+        """
+        Get bytes that represents the current instance content.
+        """
+        pass
+
+
+"""
+Interfaces for Network-related objects.
+"""
+class NetworkMessage(SignableContent):
+    """
+    Network Message abstract class.
+    This represents the content of a packet, as seen by clients.
+    Clients should not be able to see "src" and "dst" fields, as they are not trustworthy.
+    """
+    def __init__(self, src: NetworkSender):
+        self.__src = src.id
+
+class NetworkSender(ABC):
+    """
+    Network Sender Interface.
+    This represents a user that can send but not especially receive messages. It is useful for the ElectionAuthority, that only sends the StartElectionMessage.
+    """
+    @property
+    @abstractmethod
+    def id(self) -> str:
+        pass
+
+class NetworkClient(NetworkSender):
+    """
+    Network Client Interface.
+    This represents what the client will actually see on receive.
+    None of those arguments are trustworthy: the Network might have tampered, invented or blocked packets.
+    """
+    @abstractmethod
+    def on_receive(self, message: Message, src: NetworkSender):
+        pass
+
+
 
 """
 Election Authority Messages
 """
-
 class StartElectionMessage(SignableContent):
     """
     Initial message to start the election. See paper for details.
@@ -71,58 +127,6 @@ class StopElectionMessage(SignableContent):
         return bytes()  # Maybe add something like the hash of the current instance?
 
 """
-Tallier Messages.
-"""
-
-
-class TallierPartialKeyMessage(SignableContent):
-    """
-    Partial key share message sent by talliers. See paper for details.
-    Note: tallier_id was added even though it is not specified in the paper.
-    """
-    BYTEORDER: Literal['big'] = 'big'
-
-    def __init__(self, tallier_id: str, pub_key: VoteEncryptionKeys, nizkp: TallierKeyShareNIZKP):
-        self.__tallier_id = tallier_id
-        self.__pub_key = pub_key
-        self.__nizkp = nizkp
-
-    @property
-    def tallier_id(self) -> str:
-        return self.__tallier_id
-
-    @property
-    def pub_key(self) -> VoteEncryptionKeys:
-        return self.__pub_key
-
-    @property
-    def nizkp(self) -> TallierKeyShareNIZKP:
-        return self.__nizkp
-
-    @override
-    def as_bytes(self) -> bytes:
-        tid = self.__tallier_id.encode('ascii')
-        pkey = self.__pub_key.public.to_bytes(ceil(log2(self.__pub_key.public)), TallierPartialKeyMessage.BYTEORDER)
-        nizkp = self.__nizkp.as_bytes()
-
-        return tid + pkey + nizkp
-
-
-class TallierPartialDecryptionMessage(SignableContent):
-    """
-    Partial decryption message sent by tallier on election end. See paper for details.
-    """
-    def __init__(self, tallier_id: str, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
-        super().__init__(tallier_id)
-        self.tallier_id = tallier_id
-        self.partial_deciphered = partial_deciphered
-        self.nizkp = nizkp
-
-    @override
-    def as_bytes(self) -> bytes:
-        return self.partial_deciphered.as_bytes() + self.nizkp.as_bytes()
-
-"""
 Bulletin Board Messages
 """
 
@@ -152,12 +156,3 @@ class BBReadResult(NetworkMessage):
     def state(self) -> list[NetworkMessage]:
         return self.__state.copy()
 
-
-class Message(ABC):
-    """Message abstract class."""
-    def __init__(self, src: str):
-        self.__src = src
-
-    @property
-    def src(self) -> str:
-        return self.__src

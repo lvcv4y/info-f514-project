@@ -3,8 +3,7 @@ The (untrusted) network-related objects.
 """
 from abc import ABC, abstractmethod
 from collections import deque
-from crypto import SignableContent
-from messages import Message
+from messages import Message, NetworkSender, NetworkClient, SignableContent
 from typing import Callable, Optional, Union
 
 class NetworkPacket:
@@ -31,37 +30,6 @@ class NetworkPacket:
     @property
     def msg(self):
         return self.__msg
-
-
-class NetworkMessage(SignableContent):
-    """
-    Network Message abstract class.
-    This represents the content of a packet, as seen by clients.
-    Clients should not be able to see "src" and "dst" fields, as they are not trustworthy.
-    """
-    def __init__(self, src: NetworkSender):
-        self.__src = src.id
-
-class NetworkSender(ABC):
-    """
-    Network Sender Interface.
-    This represents a user that can send but not especially receive messages. It is useful for the ElectionAuthority, that only sends the StartElectionMessage.
-    """
-    @property
-    @abstractmethod
-    def id(self) -> str:
-        pass
-
-class NetworkClient(NetworkSender):
-    """
-    Network Client Interface.
-    This represents what the client will actually see on receive.
-    None of those arguments are trustworthy: the Network might have tampered, invented or blocked packets.
-    """
-    @abstractmethod
-    def on_receive(self, message: Message, src: NetworkSender):
-        pass
-
 
 
 class Network:

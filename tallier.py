@@ -5,14 +5,15 @@ from typing import Optional
 from uuid import uuid4
 
 from complains import Complain, ComplainType, SafeChannel
-from crypto import CipheredVector, SigningKeys, SignedContent, VoteEncryptionKeys, \
-    TallierKeyShareNIZKP, KeyBuildContext, TallierPartialDecryptionNIZKP, \
-    TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext, VoteNIZKPVerificationContext
+from crypto.classes import SignedContent, CipheredVector
+from crypto.keys import VoteEncryptionKeys, SigningKeys
+from crypto.nizkp import TallierKeyShareNIZKP, KeyBuildContext, TallierPartialDecryptionNIZKP, TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext, VoteNIZKPVerificationContext
+from crypto.messages import TallierPartialDecryptionMessage, TallierPartialKeyMessage
 from exceptions import TallyingError
-from network import NetworkClient, Network, NetworkMessage, Message, NetworkSender
+from network import NetworkClient, Network, NetworkSender
+from messages import Message, NetworkMessage
 from authorities import ElectionAuthority, PKI
-from messages import (StartElectionMessage, StopElectionMessage, TallierPartialKeyMessage,
-                      TallierPartialDecryptionMessage, BBReadQuery, BBReadResult)
+from messages import (StartElectionMessage, StopElectionMessage,BBReadQuery, BBReadResult)
 from vote import Ballot
 
 
@@ -141,9 +142,8 @@ class Tallier(NetworkClient):
         if(self.__keys is None):
             raise TallyingError("Tallier has not received the crypto parameters from the ElectionAuthority, cannot tally.")
 
-        if self.__vote_key is not None and len(self.__valid_talliers) > 0:
-            SafeChannel.warn(f"Tallier {self.id}", "Can't tally ; didn't finish retrieving voting key.")
-            return
+        if (self.__vote_key is not None and len(self.__valid_talliers) > 0) or self.__vote_key is None:
+            raise TallyingError("Not all tallier keys have been received, cannot tally.")
 
         for msg in self.__bb_content:
             if not isinstance(msg, SignedContent):  # Any message we consider "valid" are signed
@@ -170,7 +170,6 @@ class Tallier(NetworkClient):
 
             # Verify NIZKP.
             if not ballot.nizkp.verify(VoteNIZKPVerificationContext(self.__vote_key, ballot.vote_cipher, signing_key)):
-                SafeChannel.warn(f"Tallier-{self.id}", "A voter NIZKP couldn't be verified.")
                 continue
 
             # The voter ID is legit, the signature and NIZKP are verified.

@@ -7,7 +7,7 @@ Note: Voters actually have a trusted additional channel to report errors / detec
 from typing import Callable, TYPE_CHECKING, Optional
 
 from network import Network, NetworkSender
-from crypto import SigningKeys
+from crypto.keys import SigningKeys
 from messages import StartElectionMessage, StopElectionMessage
 # Cryptographic parameters (RFC 3526 – 2048-bit MODP group, safe prime)
 # https://datatracker.ietf.org/doc/html/rfc3526

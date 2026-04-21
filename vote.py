@@ -6,25 +6,18 @@ from typing import Callable, Optional, override
 from functools import reduce
 
 from complains import ComplainType, SafeChannel, Complain
-from crypto import (SigningKeys, SignableContent, SignedContent, VoteEncryptionKeys, ClearVector, CipheredVector, \
-                    VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext)
-from network import NetworkClient, Network, NetworkMessage, Message, NetworkSender
+from messages import SignableContent
+from crypto.classes import CipheredVector, SignedContent, Vote
+from crypto.nizkp import VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext
+from crypto.keys import SigningKeys, VoteEncryptionKeys
+from crypto.messages import TallierPartialKeyMessage
+from network import NetworkClient, Network, NetworkSender
+from messages import Message
 from authorities import PKI, ElectionAuthority
-
-from messages import StartElectionMessage, TallierPartialKeyMessage
+from board import BulletinBoard
+from messages import BBReadQuery, BBReadResult, StartElectionMessage, StopElectionMessage
 from exceptions import UnfinishedSetupPhaseError
 
-
-
-class Vote(ClearVector):
-    """
-    Represents the vote, following the specification given in the paper.
-     A Vote is either "abstain" or a tuple (i_1, i_2,... i_n) where i_k is the number of "points"
-     a voter gives to a candidate. This tuple can be constrained: for example, with the sum of its element
-     being equal to 1 (== only once "point" per voter).
-    """
-    def __init__(self, plaintext: tuple[int, ...]):
-        super().__init__(plaintext)
 
 
 class Ballot(SignableContent):
@@ -75,6 +68,7 @@ class Voter(NetworkClient):
 
         self.__vote = vote
         self.__vote_func = vote_func
+        self.__voted = False
 
         self.__id = str(uuid4())
 
@@ -144,6 +138,48 @@ class Voter(NetworkClient):
                     return
 
                 self.__talliers_key_dict[inner.tallier_id] = inner.pub_key
+            elif isinstance(inner, StopElectionMessage):
+                # Verify signature
+                key = PKI().get_key_from_client(ElectionAuthority().id)
+                if key is None or not key.verify_signature(message):
+                    return
+
+                if not self.__voted:
+                    complain = Complain(self.id, ComplainType.UNABLE_TO_VOTE)
+                    self.__safe_channel.post(complain=self.__keys.sign(complain))
+
+                # Ask the bulletin board for the content, to verify that our vote is on it.
+                message = BBReadQuery(self)
+                self.__network.send(
+                    self.__keys.sign(message),
+                    self,
+                    BulletinBoard()
+                )
+            elif isinstance(inner, BBReadResult):
+                # Verify signature
+                key = PKI().get_key_from_client(BulletinBoard().id)
+                if key is None or not key.verify_signature(message):
+                    return
+                # Check if our vote is on the BB
+                if not self.__voted:
+                    return
+                
+                found = False
+                stop_msg = False
+                for message in inner.state:
+                    if not isinstance(message, SignedContent) or not isinstance(message.data, Ballot):
+                        if isinstance(message, SignedContent) and isinstance(message.data, StopElectionMessage):
+                            stop_msg = True
+                        break
+
+                    ballot: Ballot = message.data
+                    if ballot.voter_id == self.id and not stop_msg:
+                        found = True
+
+                if not found:
+                    complain = Complain(self.id, ComplainType.VOTE_VERIF_FAILED)
+                    self.__safe_channel.post(complain=self.__keys.sign(complain))
+
 
 
     def post_vote(self):
@@ -172,3 +208,4 @@ class Voter(NetworkClient):
 
         message = self.__keys.sign(ballot)
         self.__network.send(message, self, None)  # Broadcast to find BulletinBoard
+        self.__voted = True
