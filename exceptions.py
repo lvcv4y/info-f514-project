@@ -37,3 +37,9 @@ class ResultComputeError(Exception):
     A critical anomaly appeared when computing results.
     """
     pass
+
+class ElectionRejected(Exception):
+    """
+    The election was rejected by the judge, due to some detected fraud.
+    """
+    pass

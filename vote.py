@@ -2,13 +2,13 @@
 Classes to represent voters and their votes.
 """
 from uuid import uuid4
-from typing import Callable, override
+from typing import Callable, Optional, override
 from functools import reduce
 
 from complains import SafeChannel
 from crypto import (SigningKeys, SignableContent, SignedContent, VoteEncryptionKeys, ClearVector, CipheredVector, \
                     VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext)
-from network import NetworkClient, Network, NetworkMessage
+from network import NetworkClient, Network, NetworkMessage, Message, NetworkSender
 from authorities import PKI, ElectionAuthority
 
 from messages import StartElectionMessage, TallierPartialKeyMessage
@@ -48,18 +48,23 @@ class Ballot(SignableContent):
 class Voter(NetworkClient):
     """
     Basic voter implementation.
-    """
 
+    Each voter has a name, a vote (or a function to compute it), and signing keys. It can receive messages from the network,
+    and post its vote on the network when the setup phase is finished.
+    """
     def __init__(self,
-                 name: str = None,
-                 vote: Vote = None,
-                 vote_func: Callable[["Voter"], Vote] = None,
-                 network: Network = None,
-                 pki: PKI = None,
+                 name: str,
+                 vote: Optional[Vote] = None,
+                 vote_func: Optional[Callable[["Voter"], Vote]] = None,
+                 network: Optional[Network] = None,
+                 pki: Optional[PKI] = None,
                  self_register_network: bool = True,
                  self_register_pki: bool = True,
         ):
-        assert vote is not None or vote_func is not None, "Each voter must have either a (static) vote or a voting function."
+
+        if(vote is None and vote_func is None):
+            raise ValueError("Each voter must have either a (static) vote or a voting function.")
+        
         super().__init__()
         self.__network = Network() if network is None else network
         self.__pki = PKI() if pki is None else pki
@@ -74,9 +79,8 @@ class Voter(NetworkClient):
         # Signing keys
         self.__keys = SigningKeys.generate()
 
-        self.__last_posted_vote = None
-        self.__valid_talliers_ids = None
-        self.__talliers_key_dict = None
+        self.__valid_talliers_ids: Optional[list[str]] = None
+        self.__talliers_key_dict: Optional[dict[str, VoteEncryptionKeys]] = None
 
         if self_register_network:
             self.__network.register(self)
@@ -89,28 +93,28 @@ class Voter(NetworkClient):
         return self.__id
 
     @property
-    def last_posted_vote(self) -> Vote | None:
-        """
-        Get last vote posted on the network.
-        """
-        return self.__last_posted_vote
-
-    @property
     def vote(self) -> Vote:
         """
         Get Voter's vote.
         """
-        return self.__vote if self.__vote is not None else self.__vote_func(self)
+        if self.__vote is not None:
+            return self.__vote
+
+        if self.__vote_func is None:
+            raise RuntimeError("Voter has neither a static vote nor a voting function.")
+
+        return self.__vote_func(self)
 
     @override
-    def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
+    def on_receive(self, message: Message, src: NetworkSender):
         # BulletinBoard read, ElectionAuthority initial parameters, etc
         if isinstance(message, SignedContent):
             inner = message.data
 
             if isinstance(inner, StartElectionMessage):
                 # Verify signature
-                if not PKI().get_key_from_client(ElectionAuthority().id).verify_signature(message):
+                key = PKI().get_key_from_client(ElectionAuthority().id)
+                if key is None or not key.verify_signature(message):
                     return
 
                 if self.id not in inner.voters:
@@ -125,11 +129,14 @@ class Voter(NetworkClient):
                 sign_key = PKI().get_key_from_client(inner.tallier_id)
                 if sign_key is None or not sign_key.verify_signature(message):
                     return
+                
+                if self.__valid_talliers_ids is None or self.__talliers_key_dict is None or len(self.__talliers_key_dict) != len(self.__valid_talliers_ids):
+                    raise UnfinishedSetupPhaseError("Talliers missing. Either the vote is too early, or a message has been dropped.")
 
                 if not inner.nizkp.verify(PubkeyVerificationContext(inner.pub_key)):
                     return
 
-                if inner.tallier_id in self.__talliers_key_dict:
+                if inner.tallier_id in self.__talliers_key_dict.keys():
                     # Warning: two message for a same id, that's weird
                     return
 
@@ -144,11 +151,14 @@ class Voter(NetworkClient):
             UnfinishedSetupPhaseError: When the vote cannot be posted as the setup phase didn't finish.
         """
         # Compute total encryption key.
-        if self.__valid_talliers_ids is None or len(self.__talliers_key_dict) != len(self.__valid_talliers_ids):
+        if self.__valid_talliers_ids is None or self.__talliers_key_dict is None or len(self.__talliers_key_dict) != len(self.__valid_talliers_ids):
             raise UnfinishedSetupPhaseError("Talliers missing. Either the vote is too early, or a message has been dropped.")
 
         # Assume symmetric mul.
-        encryption_key: VoteEncryptionKeys = reduce(lambda k1, k2: k2 * k1, self.__talliers_key_dict.values(), None)
+        encryption_key = reduce(lambda k1, k2: k2 * k1, self.__talliers_key_dict.values(), None)
+        if encryption_key is None:
+            raise UnfinishedSetupPhaseError("Talliers missing. Either the vote is too early, or a message has been dropped.")
+        
 
         vote = self.vote
         ciphered, random_vector = encryption_key.cipher(vote)
