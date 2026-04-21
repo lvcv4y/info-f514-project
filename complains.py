@@ -14,8 +14,15 @@ class SafeChannel:
 
     (For now this is only printing things).
     """
-    def __init__(self, judge: Judge):
-        self.judge = judge
+    instance = None
+
+    def __new__(cls): # Singleton pattern, to ensure only one instance of SafeChannel exists
+        if cls.instance is None:
+            cls.instance = super().__new__(cls)
+        return cls.instance
+    
+    def __init__(self, judge: Judge | None = None):
+        self.judge = judge if judge is not None else Judge()
 
     def post(self, complain: SignedContent[Complain]):
         self.judge.complain(complain)
@@ -26,15 +33,15 @@ class SafeChannel:
 
 
 class ComplainType(Enum):
-    VOTE = 1
-    TALLYING = 2
+    NOT_VALID_TALLIER = 0
+    NOT_VALID_VOTER = 1
     OTHER = 3
 
     def message(self) -> str:
-        if self == ComplainType.VOTE:
-            return "I have a problem with my vote :("
-        elif self == ComplainType.TALLYING:
-            return "I have a problem with the tallying phase :("
+        if self == ComplainType.NOT_VALID_TALLIER:
+            return "The author is not detected as a valid tallier."
+        elif self == ComplainType.NOT_VALID_VOTER:
+            return "The author is not detected as a valid voter."
         else:
             return "I have a problem :("
 
@@ -43,9 +50,8 @@ class Complain(SignableContent):
     A complain message, to be sent through the network and verified by the judge.
     """
     def __init__(self, author: str, type: ComplainType):
-        super().__init__()
-        self.author = author
+        super().__init__(author)
         self.type = type
 
     def as_bytes(self) -> bytes:
-        return f"{self.author}:{self.type}".encode('ascii')
+        return f"{self.src}:{self.type}".encode('ascii')

@@ -5,7 +5,7 @@ from uuid import uuid4
 from typing import Callable, Optional, override
 from functools import reduce
 
-from complains import SafeChannel
+from complains import ComplainType, SafeChannel, Complain
 from crypto import (SigningKeys, SignableContent, SignedContent, VoteEncryptionKeys, ClearVector, CipheredVector, \
                     VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext)
 from network import NetworkClient, Network, NetworkMessage, Message, NetworkSender
@@ -58,6 +58,7 @@ class Voter(NetworkClient):
                  vote_func: Optional[Callable[["Voter"], Vote]] = None,
                  network: Optional[Network] = None,
                  pki: Optional[PKI] = None,
+                 safe_channel: Optional[SafeChannel] = None,
                  self_register_network: bool = True,
                  self_register_pki: bool = True,
         ):
@@ -68,6 +69,7 @@ class Voter(NetworkClient):
         super().__init__()
         self.__network = Network() if network is None else network
         self.__pki = PKI() if pki is None else pki
+        self.__safe_channel = SafeChannel() if safe_channel is None else safe_channel
 
         self.name = name
 
@@ -118,7 +120,8 @@ class Voter(NetworkClient):
                     return
 
                 if self.id not in inner.voters:
-                    SafeChannel.warn(f"Voter {self.id}", "I am not a valid voter!")
+                    complain = Complain(self.id, ComplainType.NOT_VALID_VOTER)
+                    self.__safe_channel.post(complain=self.__keys.sign(complain))
                     return
 
                 self.__valid_talliers_ids = inner.talliers

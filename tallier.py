@@ -4,7 +4,7 @@ Tallier related objects and methods.
 from typing import Optional
 from uuid import uuid4
 
-from complains import SafeChannel
+from complains import Complain, ComplainType, SafeChannel
 from crypto import CipheredVector, SigningKeys, SignedContent, VoteEncryptionKeys, \
     TallierKeyShareNIZKP, KeyBuildContext, TallierPartialDecryptionNIZKP, \
     TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext, VoteNIZKPVerificationContext
@@ -20,16 +20,17 @@ class Tallier(NetworkClient):
     """
     Basic and legit tallier implementation.
     """
-
     def __init__(self,
                  network: Optional[Network] = None,
                  pki: Optional[PKI] = None,
+                 safe_channel: Optional[SafeChannel] = None,
                  self_register_network: bool = True,
                  self_register_pki: bool = True
     ):
         super().__init__()
         self.__network = Network() if network is None else network
         self.__pki = PKI() if pki is None else pki
+        self.__safe_channel = SafeChannel() if safe_channel is None else safe_channel
 
         self.__start_tallying = False
         self.__bb_content: list[NetworkMessage] = []
@@ -62,7 +63,8 @@ class Tallier(NetworkClient):
                 if auth_keys is not None and auth_keys.verify_signature(message):
                     # Check if we are indeed a valid tallier
                     if self.id not in inner.talliers:
-                        SafeChannel.warn(f"Tallier {self.id}", "I am not a valid tallier :(")
+                        complain = Complain(self.id, ComplainType.NOT_VALID_TALLIER)
+                        self.__safe_channel.post(complain=self.__signing_keys.sign(complain))
 
                     # Generate keys
                     self.__keys: Optional[VoteEncryptionKeys] = VoteEncryptionKeys.generate_from(*inner.crypto_parameters)
@@ -70,7 +72,8 @@ class Tallier(NetworkClient):
                     self.__valid_talliers = inner.talliers
 
                     if self.id not in self.__valid_talliers:
-                        SafeChannel.warn(f"Tallier-{self.id}", "I am not a valid Tallier")
+                        complain = Complain(self.id, ComplainType.NOT_VALID_TALLIER)
+                        self.__safe_channel.post(complain=self.__signing_keys.sign(complain))
                     else:
                         self.__valid_talliers.remove(self.id)
                         if self.__vote_key is None:  # Check to prevent race conditions (who knows...)
@@ -97,7 +100,7 @@ class Tallier(NetworkClient):
 
                     # Fetch the BB content
                     self.__network.send(
-                        BBReadQuery(),
+                        BBReadQuery(self),
                         self,
                         None  # Broadcast (for now)
                     )

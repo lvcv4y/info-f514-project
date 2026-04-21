@@ -13,7 +13,7 @@ from typing import override, Literal
 from math import ceil, log2
 
 from crypto import SignableContent, VoteEncryptionKeys, TallierKeyShareNIZKP, ClearVector, TallierPartialDecryptionNIZKP
-from network import NetworkMessage
+from network import NetworkMessage, NetworkSender
 
 """
 Election Authority Messages
@@ -40,8 +40,8 @@ class StartElectionMessage(SignableContent):
 
         return crypto_params + vote_validator + voters + talliers
 
-    def __init__(self, crypto_parameters: tuple[int, int, int], voters: list[str], talliers: list[str], vote_validator):
-        super().__init__()
+    def __init__(self, src: str, crypto_parameters: tuple[int, int, int], voters: list[str], talliers: list[str], vote_validator):
+        super().__init__(src)
         self.__crypto_parameters = crypto_parameters
         self.__voters = voters
         self.__talliers = talliers
@@ -113,6 +113,7 @@ class TallierPartialDecryptionMessage(SignableContent):
     Partial decryption message sent by tallier on election end. See paper for details.
     """
     def __init__(self, tallier_id: str, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
+        super().__init__(tallier_id)
         self.tallier_id = tallier_id
         self.partial_deciphered = partial_deciphered
         self.nizkp = nizkp
@@ -129,15 +130,23 @@ class BBReadQuery(NetworkMessage):
     """
     Read query to get all messages from network. empty class.
     """
-    pass
+    def as_bytes(self) -> bytes:
+        return f"BBReadQuery:{self.src}".encode('ascii')
 
 
 class BBReadResult(NetworkMessage):
     """
     Read response that contains messages from network.
     """
-    def __init__(self, state: list[NetworkMessage]):
+    def __init__(self, state: list[NetworkMessage], src: NetworkSender):
+        super().__init__(src)
         self.__state = state
+
+    def as_bytes(self) -> bytes:
+        bytes = b''
+        for message in self.__state:
+            bytes += message.as_bytes()
+        return bytes
 
     @property
     def state(self) -> list[NetworkMessage]:
@@ -145,5 +154,10 @@ class BBReadResult(NetworkMessage):
 
 
 class Message(ABC):
-    """Network Message abstract class."""
-    pass
+    """Message abstract class."""
+    def __init__(self, src: str):
+        self.__src = src
+
+    @property
+    def src(self) -> str:
+        return self.__src

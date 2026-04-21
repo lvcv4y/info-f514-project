@@ -3,6 +3,7 @@ The (untrusted) network-related objects.
 """
 from abc import ABC, abstractmethod
 from collections import deque
+from crypto import SignableContent
 from messages import Message
 from typing import Callable, Optional, Union
 
@@ -32,13 +33,14 @@ class NetworkPacket:
         return self.__msg
 
 
-class NetworkMessage(Message):
+class NetworkMessage(SignableContent):
     """
     Network Message abstract class.
     This represents the content of a packet, as seen by clients.
     Clients should not be able to see "src" and "dst" fields, as they are not trustworthy.
     """
-    pass
+    def __init__(self, src: NetworkSender):
+        self.__src = src.id
 
 class NetworkSender(ABC):
     """

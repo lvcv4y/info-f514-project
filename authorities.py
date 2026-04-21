@@ -112,6 +112,7 @@ class ElectionAuthority(NetworkSender):
         # Use the cryptographic parameters defined for this election
         crypto_params = (_P, _Q, _G)
         message = StartElectionMessage(
+            self.id,
             crypto_params,
             [v.id for v in self.__voters],
             [t.id for t in self.__talliers],
@@ -129,7 +130,7 @@ class ElectionAuthority(NetworkSender):
     def end_election(self):
         """Ends the election, following the paper protocol: send a signed "stop election" message."""
         self.network.send(
-            self.__keys.sign(StopElectionMessage()),
+            self.__keys.sign(StopElectionMessage(self.id)),
             self,  # ElectionAuthority does not need to listen anything ; at least for now.
             None,  # Broadcast
         )

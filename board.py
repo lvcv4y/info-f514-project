@@ -37,7 +37,7 @@ class BulletinBoard(NetworkClient):
     @override
     def on_receive(self, message: Message, src: NetworkSender):
         if isinstance(message, BBReadQuery) and isinstance(src, NetworkClient):
-            self.__network.send(BBReadResult(self.__read()), self, src)
+            self.__network.send(BBReadResult(self.__read(), self), self, src)
         elif not isinstance(message, BBReadResult) and isinstance(message, NetworkMessage):
             self.__write(message)
 
@@ -90,6 +90,8 @@ class BulletinBoard(NetworkClient):
         """
         warn = lambda _: None
 
+        #TODO: I think something must be done for the warns. For me all the warns should not be triggered here but by the Judge.
+        # So here we should assume that all keys are okay and if not just skip
         if complain_author is not None:
             warn = lambda m: SafeChannel.warn(complain_author, m)
 
