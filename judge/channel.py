@@ -1,6 +1,12 @@
-from judge.judge import Judge
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from judge.complains import Complain
-from crypto.classes import SignedContent
+from communication import SignedContent
+
+if TYPE_CHECKING:
+    from judge.judge import Judge
 
 """
 This file holds the "safe" channel in which the users can fill complaints.
@@ -22,7 +28,12 @@ class SafeChannel:
         return cls.instance
     
     def __init__(self, judge: Judge | None = None):
-        self.judge = judge if judge is not None else Judge()
+        if judge is None:
+            from judge.judge import Judge
+
+            judge = Judge()
+
+        self.judge = judge
 
     def post(self, complain: SignedContent[Complain]):
         self.judge.complain(complain)

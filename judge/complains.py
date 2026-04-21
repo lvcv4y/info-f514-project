@@ -1,5 +1,5 @@
 
-from messages import SignableContent
+from communication import SignableContent
 from enum import Enum
 
 

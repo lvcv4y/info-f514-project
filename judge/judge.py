@@ -1,14 +1,13 @@
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Optional
 
 from authorities import ElectionAuthority, PKI
 from board import BulletinBoard
 from crypto.keys import VoteEncryptionKeys
-from crypto.classes import SignedContent
 from crypto.nizkp import PubkeyVerificationContext, VoteNIZKPVerificationContext, TallierPartialDecryptionVerifContext
 from crypto.tallier_messages import TallierPartialDecryptionMessage, TallierPartialKeyMessage
 from exceptions import ElectionRejected
-from messages import (
+from communication import (
     BBReadQuery,
     BBReadResult,
     StartElectionMessage,
@@ -16,7 +15,7 @@ from messages import (
 )
 from vote import Ballot
 from network import Network, NetworkPacket
-from messages import Message, NetworkMessage, NetworkSender, NetworkClient
+from communication import Message, NetworkMessage, NetworkSender, NetworkClient, SignedContent
 from judge.complains import Complain
 
 
@@ -70,14 +69,18 @@ class Judge(NetworkClient):
 
     @property
     def id(self) -> str:
+        return Judge.ID()
+    
+    @staticmethod
+    def ID() -> str:
         return "Judge"
 
     def _verify_signed_by(self, signed: SignedContent, signer_id: str) -> bool:
         key = self.__pki.get_key_from_client(signer_id)
         return key is not None and key.verify_signature(signed)
 
-    def _compute_snapshot(self, state: Sequence[NetworkMessage], should_have_setup: bool = True, should_have_close: bool = False) -> _ElectionSnapshot:
-        authority_id = ElectionAuthority().id
+    def _compute_snapshot(self, state: list[NetworkMessage | SignedContent[NetworkMessage]], should_have_setup: bool = True, should_have_close: bool = False) -> _ElectionSnapshot:
+        authority_id = ElectionAuthority.ID()
 
         setup_msg: Optional[SignedContent[StartElectionMessage]] = None
         close_msg: Optional[SignedContent[StopElectionMessage]] = None
@@ -87,31 +90,34 @@ class Judge(NetworkClient):
         ballot_messages: list[tuple[int, SignedContent[Ballot]]] = []
         partial_decryptions: dict[str, SignedContent[TallierPartialDecryptionMessage]] = {}
 
+        if len(state) == 0:
+            if should_have_setup:
+                raise ElectionRejected("Bulletin board state is empty, but at least a setup message was expected.")
+            else:
+                return _ElectionSnapshot(None, None, None)
+        
         for idx, raw in enumerate(state):
             if not isinstance(raw, SignedContent):
                 raise ElectionRejected(f"Bulletin board state contains a non-signed message, from {raw.src}.")
-
-            inner = raw.data
-
-            if isinstance(inner, StartElectionMessage):
+            if isinstance(raw.data, StartElectionMessage):
                 if not self._verify_signed_by(raw, authority_id):
                     raise ElectionRejected("Invalid signature on setup message.")
 
                 if setup_msg is None:
-                    setup_msg = raw
+                    setup_msg = raw # type: ignore
                 elif setup_msg.as_bytes() != raw.as_bytes():
                     raise ElectionRejected("Conflicting setup messages detected on the bulletin board. Source of first conflicting message: {setup_msg.src}. Source of second conflicting message: {raw.src}.")
                 continue
-
+            
             if setup_msg is None:
                 continue
 
-            if isinstance(inner, StopElectionMessage):
+            if isinstance(raw.data, StopElectionMessage):
                 if not self._verify_signed_by(raw, authority_id):
                     raise ElectionRejected("Invalid signature on voting-closed message.")
 
                 if close_msg is None:
-                    close_msg = raw
+                    close_msg = raw # type: ignore
                     close_index = idx
                 elif close_msg.as_bytes() != raw.as_bytes():
                     raise ElectionRejected("Conflicting voting-closed messages detected on the bulletin board. Source of first conflicting message: {close_msg.src}. Source of second conflicting message: {raw.src}.")
@@ -121,53 +127,53 @@ class Judge(NetworkClient):
             valid_talliers = set(setup.talliers)
             valid_voters = set(setup.voters)
 
-            if isinstance(inner, TallierPartialKeyMessage):
-                if inner.tallier_id not in valid_talliers:
-                    raise ElectionRejected(f"Tallier {inner.tallier_id} is not in the setup message tallier list.")
+            if isinstance(raw.data, TallierPartialKeyMessage):
+                if raw.data.tallier_id not in valid_talliers:
+                    raise ElectionRejected(f"Tallier {raw.data.tallier_id} is not in the setup message tallier list.")
 
-                if not self._verify_signed_by(raw, inner.tallier_id):
-                    raise ElectionRejected(f"Invalid signature on key-share message from tallier {inner.tallier_id}.")
+                if not self._verify_signed_by(raw, raw.data.tallier_id):
+                    raise ElectionRejected(f"Invalid signature on key-share message from tallier {raw.data.tallier_id}.")
 
-                if not inner.nizkp.verify(PubkeyVerificationContext(inner.pub_key)):
-                    raise ElectionRejected(f"Invalid key-share NIZKP from tallier {inner.tallier_id}.")
+                if not raw.data.nizkp.verify(PubkeyVerificationContext(raw.data.pub_key)):
+                    raise ElectionRejected(f"Invalid key-share NIZKP from tallier {raw.data.tallier_id}.")
 
-                previous = key_shares.get(inner.tallier_id)
+                previous = key_shares.get(raw.data.tallier_id)
                 if previous is not None and previous.as_bytes() != raw.as_bytes():
-                    raise ElectionRejected(f"Tallier {inner.tallier_id} posted conflicting key shares. Source of first conflicting message: {previous.src}. Source of second conflicting message: {raw.src}.")
+                    raise ElectionRejected(f"Tallier {raw.data.tallier_id} posted conflicting key shares. Source of first conflicting message: {previous.src}. Source of second conflicting message: {raw.src}.")
 
-                key_shares[inner.tallier_id] = raw
+                key_shares[raw.data.tallier_id] = raw # type: ignore
                 continue
 
-            if isinstance(inner, Ballot):
+            if isinstance(raw.data, Ballot):
                 if close_index is not None and idx > close_index:
                     raise ElectionRejected("Ballot posted after voting-closed message.")
 
-                if inner.voter_id not in valid_voters:
-                    raise ElectionRejected(f"Voter {inner.voter_id} is not in the setup message voter list.")
+                if raw.data.voter_id not in valid_voters:
+                    raise ElectionRejected(f"Voter {raw.data.voter_id} is not in the setup message voter list.")
 
-                if not self._verify_signed_by(raw, inner.voter_id):
-                    raise ElectionRejected(f"Invalid signature on ballot from voter {inner.voter_id}.")
+                if not self._verify_signed_by(raw, raw.data.voter_id):
+                    raise ElectionRejected(f"Invalid signature on ballot from voter {raw.data.voter_id}.")
 
-                ballot_messages.append((idx, raw))
+                ballot_messages.append((idx, raw)) # type: ignore
                 continue
 
-            if isinstance(inner, TallierPartialDecryptionMessage):
+            if isinstance(raw.data, TallierPartialDecryptionMessage):
                 if close_index is None or idx <= close_index:
-                    raise ElectionRejected(f"Partial decryption from tallier {inner.tallier_id} posted before voting-closed message.")
+                    raise ElectionRejected(f"Partial decryption from tallier {raw.data.tallier_id} posted before voting-closed message.")
 
-                if inner.tallier_id not in valid_talliers:
-                    raise ElectionRejected(f"Tallier {inner.tallier_id} is not in the setup message tallier list.")
+                if raw.data.tallier_id not in valid_talliers:
+                    raise ElectionRejected(f"Tallier {raw.data.tallier_id} is not in the setup message tallier list.")
 
-                if not self._verify_signed_by(raw, inner.tallier_id):
+                if not self._verify_signed_by(raw, raw.data.tallier_id):
                     raise ElectionRejected(
-                        f"Invalid signature on partial decryption from tallier {inner.tallier_id}."
+                        f"Invalid signature on partial decryption from tallier {raw.data.tallier_id}."
                     )
 
-                previous = partial_decryptions.get(inner.tallier_id)
+                previous = partial_decryptions.get(raw.data.tallier_id)
                 if previous is not None and previous.as_bytes() != raw.as_bytes():
-                    raise ElectionRejected(f"Tallier {inner.tallier_id} posted conflicting partial decryptions. Source of first conflicting message: {previous.src}. Source of second conflicting message: {raw.src}.")
+                    raise ElectionRejected(f"Tallier {raw.data.tallier_id} posted conflicting partial decryptions. Source of first conflicting message: {previous.src}. Source of second conflicting message: {raw.src}.")
 
-                partial_decryptions[inner.tallier_id] = raw
+                partial_decryptions[raw.data.tallier_id] = raw # type: ignore
 
         if setup_msg is None and should_have_setup:
             raise ElectionRejected("No valid setup message found in bulletin board state.")
@@ -201,6 +207,9 @@ class Judge(NetworkClient):
         accepted_ballots = []
         accepted_ciphertexts: set[tuple[tuple[int, int], ...]] = set()
         accepted_voters: set[str] = set()
+
+        if len(ballot_messages) == 0:
+            print("No ballots found on the bulletin board.")
 
         for _, ballot_signed in ballot_messages:
             ballot = ballot_signed.data
@@ -320,8 +329,9 @@ class Judge(NetworkClient):
             if snapshot.result != self.__stable_result:
                 raise ElectionRejected("BB message extension changed the election result.")
 
-    def perform_audit(self):
-        self.verify_complains()
+    def perform_audit(self, verify_complains: bool = True):
+        if verify_complains:
+            self.verify_complains()
         msg = BBReadQuery(src=self)
         self.__network.send(
             msg, 
@@ -331,19 +341,19 @@ class Judge(NetworkClient):
 
     def on_receive(self, message: Message, src: NetworkSender):
         if isinstance(message, SignedContent) and isinstance(message.data, StartElectionMessage):
-            if not self._verify_signed_by(message, ElectionAuthority().id):
+            if not self._verify_signed_by(message, ElectionAuthority.ID()):
                 raise ElectionRejected("Invalid signature on voting-closed message received by judge.")
             self.election_started = True
-            self.perform_audit()
+            self.perform_audit(verify_complains=False)
 
         if isinstance(message, SignedContent) and isinstance(message.data, StopElectionMessage):
-            if not self._verify_signed_by(message, ElectionAuthority().id):
+            if not self._verify_signed_by(message, ElectionAuthority.ID()):
                 raise ElectionRejected("Invalid signature on voting-closed message received by judge.")
             self.election_closed = True
             self.perform_audit()
 
         if isinstance(message, SignedContent) and isinstance(message.data, BBReadResult):
-            if not self._verify_signed_by(message, BulletinBoard().id):
+            if not self._verify_signed_by(message, BulletinBoard.ID()):
                 raise ElectionRejected("Invalid signature on bulletin board read result received by judge.")
             self._verify_BB(message.data, dst_id=self.id)
 

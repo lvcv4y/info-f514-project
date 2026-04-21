@@ -1,9 +1,8 @@
 """
 The (untrusted) network-related objects.
 """
-from abc import ABC, abstractmethod
 from collections import deque
-from messages import Message, NetworkSender, NetworkClient, SignableContent
+from communication import Message, NetworkSender, NetworkClient
 from typing import Callable, Optional, Union
 
 class NetworkPacket:

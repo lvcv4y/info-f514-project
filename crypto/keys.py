@@ -1,10 +1,10 @@
 from abc import ABC
 from typing import Optional, override, Self, Literal, Any, cast
 from exceptions import KeyNotPrivateError, CryptoError
-from messages import SignableContent
+from communication import SignableContent, SignedContent, Signature
 from math import log2, ceil
 import secrets
-from crypto.classes import ClearVector, CipheredVector, Signature, Vote, SignedContent
+from crypto.classes import ClearVector, CipheredVector, Vote
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
@@ -381,7 +381,7 @@ class SigningKeys(AsymmetricCryptographicKey):
         data = content.as_bytes()
 
         # Sign using the private key
-        signature_bytes = self.private().sign(
+        signature_bytes = self.private.sign(
             data,
             padding.PKCS1v15(),
             hashes.SHA256()

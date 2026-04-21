@@ -6,15 +6,15 @@ from uuid import uuid4
 
 from judge.complains import Complain, ComplainType
 from judge.channel import SafeChannel
-from crypto.classes import SignedContent, CipheredVector
+from crypto.classes import CipheredVector
 from crypto.keys import VoteEncryptionKeys, SigningKeys
 from crypto.nizkp import TallierKeyShareNIZKP, KeyBuildContext, TallierPartialDecryptionNIZKP, TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext, VoteNIZKPVerificationContext
 from crypto.tallier_messages import TallierPartialDecryptionMessage, TallierPartialKeyMessage
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkSender
-from messages import Message, NetworkMessage
+from communication import Message, NetworkMessage
 from authorities import ElectionAuthority, PKI
-from messages import (StartElectionMessage, StopElectionMessage,BBReadQuery, BBReadResult)
+from communication import (StartElectionMessage, StopElectionMessage,BBReadQuery, BBReadResult, SignedContent)
 from vote import Ballot
 
 
@@ -35,7 +35,7 @@ class Tallier(NetworkClient):
         self.__safe_channel = SafeChannel() if safe_channel is None else safe_channel
 
         self.__start_tallying = False
-        self.__bb_content: list[NetworkMessage] = []
+        self.__bb_content: list[NetworkMessage | SignedContent[NetworkMessage]] = []
 
         self.__valid_voters: list[str] = []
         self.__valid_talliers : list[str] = []
@@ -61,7 +61,7 @@ class Tallier(NetworkClient):
             inner = message.data
 
             if isinstance(inner, StartElectionMessage):
-                auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
+                auth_keys = self.__pki.get_key_from_client(ElectionAuthority.ID())
                 if auth_keys is not None and auth_keys.verify_signature(message):
                     # Check if we are indeed a valid tallier
                     if self.id not in inner.talliers:
@@ -86,7 +86,7 @@ class Tallier(NetworkClient):
 
                     nizkp = TallierKeyShareNIZKP.generate(KeyBuildContext(self.__keys))
 
-                    reply = TallierPartialKeyMessage(self.__id, self.__keys.as_public(), nizkp)
+                    reply = TallierPartialKeyMessage(self, self.__keys.as_public(), nizkp)
                     self.__network.send(
                         self.__signing_keys.sign(reply),
                         self,
@@ -94,7 +94,7 @@ class Tallier(NetworkClient):
                     )
 
             elif isinstance(inner, StopElectionMessage):
-                auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
+                auth_keys = self.__pki.get_key_from_client(ElectionAuthority.ID())
 
                 if auth_keys is not None and auth_keys.verify_signature(message):
                     # Enter tallying process
@@ -151,7 +151,7 @@ class Tallier(NetworkClient):
                 continue
 
             if isinstance(msg.data, StopElectionMessage):
-                auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
+                auth_keys = self.__pki.get_key_from_client(ElectionAuthority.ID())
 
                 if auth_keys is not None and auth_keys.verify_signature(msg):  # Valid signature
                     break
@@ -198,7 +198,7 @@ class Tallier(NetworkClient):
             self.__keys, aggregate, partial_decipher
         ))
 
-        msg = TallierPartialDecryptionMessage(self.id, partial_decipher, nizkp)
+        msg = TallierPartialDecryptionMessage(self, partial_decipher, nizkp)
         self.__network.send(
             self.__signing_keys.sign(msg),
             self,

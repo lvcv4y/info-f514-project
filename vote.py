@@ -7,26 +7,26 @@ from functools import reduce
 
 from judge.complains import ComplainType, Complain
 from judge.channel import SafeChannel
-from messages import SignableContent
-from crypto.classes import CipheredVector, SignedContent, Vote
+from communication import SignableContent
+from crypto.classes import CipheredVector, Vote
 from crypto.nizkp import VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext
 from crypto.keys import SigningKeys, VoteEncryptionKeys
 from crypto.tallier_messages import TallierPartialKeyMessage
 from network import NetworkClient, Network, NetworkSender
-from messages import Message
+from communication import Message, SignedContent, NetworkMessage
 from authorities import PKI, ElectionAuthority
-from board import BulletinBoard
-from messages import BBReadQuery, BBReadResult, StartElectionMessage, StopElectionMessage
+from communication import BBReadQuery, BBReadResult, StartElectionMessage, StopElectionMessage
 from exceptions import UnfinishedSetupPhaseError
 
 
 
-class Ballot(SignableContent):
+class Ballot(NetworkMessage):
     """
     Represents the triple (vote_id, cipher, nizkp), posted on network on vote. See paper for details.
     """
-    def __init__(self, voter_id: str, vote_cipher: CipheredVector, nizkp: VoteNIZKP):
-        self.voter_id = voter_id
+    def __init__(self, voter: NetworkSender, vote_cipher: CipheredVector, nizkp: VoteNIZKP):
+        super().__init__(voter)
+        self.voter_id = voter.id
         self.vote_cipher = vote_cipher
         self.nizkp = nizkp
 
@@ -77,7 +77,7 @@ class Voter(NetworkClient):
         self.__keys = SigningKeys.generate()
 
         self.__valid_talliers_ids: Optional[list[str]] = None
-        self.__talliers_key_dict: Optional[dict[str, VoteEncryptionKeys]] = None
+        self.__talliers_key_dict: dict[str, VoteEncryptionKeys] = dict()
 
         if self_register_network:
             self.__network.register(self)
@@ -104,13 +104,15 @@ class Voter(NetworkClient):
 
     @override
     def on_receive(self, message: Message, src: NetworkSender):
+        from board import BulletinBoard
+
         # BulletinBoard read, ElectionAuthority initial parameters, etc
         if isinstance(message, SignedContent):
             inner = message.data
 
             if isinstance(inner, StartElectionMessage):
                 # Verify signature
-                key = PKI().get_key_from_client(ElectionAuthority().id)
+                key = PKI().get_key_from_client(ElectionAuthority.ID())
                 if key is None or not key.verify_signature(message):
                     return
 
@@ -120,7 +122,6 @@ class Voter(NetworkClient):
                     return
 
                 self.__valid_talliers_ids = inner.talliers
-                self.__talliers_key_dict = dict()
 
             elif isinstance(inner, TallierPartialKeyMessage):
                 # Verify signature
@@ -128,9 +129,6 @@ class Voter(NetworkClient):
                 if sign_key is None or not sign_key.verify_signature(message):
                     return
                 
-                if self.__valid_talliers_ids is None or self.__talliers_key_dict is None or len(self.__talliers_key_dict) != len(self.__valid_talliers_ids):
-                    raise UnfinishedSetupPhaseError("Talliers missing. Either the vote is too early, or a message has been dropped.")
-
                 if not inner.nizkp.verify(PubkeyVerificationContext(inner.pub_key)):
                     return
 
@@ -141,7 +139,7 @@ class Voter(NetworkClient):
                 self.__talliers_key_dict[inner.tallier_id] = inner.pub_key
             elif isinstance(inner, StopElectionMessage):
                 # Verify signature
-                key = PKI().get_key_from_client(ElectionAuthority().id)
+                key = PKI().get_key_from_client(ElectionAuthority.ID())
                 if key is None or not key.verify_signature(message):
                     return
 
@@ -158,7 +156,7 @@ class Voter(NetworkClient):
                 )
             elif isinstance(inner, BBReadResult):
                 # Verify signature
-                key = PKI().get_key_from_client(BulletinBoard().id)
+                key = PKI().get_key_from_client(BulletinBoard.ID())
                 if key is None or not key.verify_signature(message):
                     return
                 # Check if our vote is on the BB
@@ -205,8 +203,9 @@ class Voter(NetworkClient):
 
         nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(encryption_key, self.__keys, vote, ciphered, random_vector))
 
-        ballot = Ballot(self.id, ciphered, nizkp)
+        ballot = Ballot(self, ciphered, nizkp)
 
         message = self.__keys.sign(ballot)
-        self.__network.send(message, self, None)  # Broadcast to find BulletinBoard
+        from board import BulletinBoard
+        self.__network.send(message, self, BulletinBoard())
         self.__voted = True

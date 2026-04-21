@@ -1,8 +1,9 @@
 from random import randint
 
-from crypto import VoteEncryptionKeys, TallierKeyShareNIZKP, KeyBuildContext, PubkeyVerificationContext, VoteNIZKP, \
-    VoteNIZKPBuildContext, VoteNIZKPVerificationContext, TallierPartialDecryptionNIZKP, \
-    TallierPartialDecryptionNIZKPBuildContext, TallierPartialDecryptionVerifContext
+from crypto.nizkp import KeyBuildContext, PubkeyVerificationContext, VoteNIZKPBuildContext, \
+TallierPartialDecryptionNIZKPBuildContext, TallierPartialDecryptionVerifContext, VoteNIZKP, TallierPartialDecryptionNIZKP, \
+VoteNIZKPVerificationContext, TallierKeyShareNIZKP
+from crypto.keys import VoteEncryptionKeys
 
 from vote import Vote
 

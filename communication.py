@@ -48,7 +48,7 @@ class NetworkMessage(SignableContent):
     Clients should not be able to see "src" and "dst" fields, as they are not trustworthy.
     """
     def __init__(self, src: NetworkSender):
-        self.__src = src.id
+        super().__init__(src.id)
 
 class NetworkSender(ABC):
     """
@@ -70,12 +70,42 @@ class NetworkClient(NetworkSender):
     def on_receive(self, message: Message, src: NetworkSender):
         pass
 
+class Signature(SignableContent):
+    """
+    Represents a signature.
+    """
+    def __init__(self, inner: bytes):
+        self.__inner = inner
+    
+    @override
+    def as_bytes(self) -> bytes:
+        return self.__inner
+    
+class SignedContent[T: SignableContent](Message):
+    """
+    Signed data representation, with two fields:
+      - SignedContent.data (SignableContent): the inner data.
+      - SignedContent.signature  (Signature): the signature itself.
+    """
+    def __init__(self, data: T, signature: Signature):
+        self.__data = data
+        self.__signature = signature
 
+    @property
+    def signature(self) -> Signature:
+        return self.__signature
+
+    @property
+    def data(self) -> T:
+        return self.__data
+    
+    def as_bytes(self) -> bytes:
+        return self.__data.as_bytes() + self.__signature.as_bytes()
 
 """
 Election Authority Messages
 """
-class StartElectionMessage(SignableContent):
+class StartElectionMessage(NetworkMessage):
     """
     Initial message to start the election. See paper for details.
 
@@ -96,7 +126,7 @@ class StartElectionMessage(SignableContent):
 
         return crypto_params + vote_validator + voters + talliers
 
-    def __init__(self, src: str, crypto_parameters: tuple[int, int, int], voters: list[str], talliers: list[str], vote_validator):
+    def __init__(self, src: NetworkSender, crypto_parameters: tuple[int, int, int], voters: list[str], talliers: list[str], vote_validator):
         super().__init__(src)
         self.__crypto_parameters = crypto_parameters
         self.__voters = voters
@@ -120,7 +150,7 @@ class StartElectionMessage(SignableContent):
         return self.__vote_validator
 
 
-class StopElectionMessage(SignableContent):
+class StopElectionMessage(NetworkMessage):
     """Stop Election Message class. Empty class."""
     @override
     def as_bytes(self) -> bytes:
@@ -142,7 +172,7 @@ class BBReadResult(NetworkMessage):
     """
     Read response that contains messages from network.
     """
-    def __init__(self, state: list[NetworkMessage], src: NetworkSender):
+    def __init__(self, state: list[NetworkMessage | SignedContent[NetworkMessage]], src: NetworkSender):
         super().__init__(src)
         self.__state = state
 
@@ -153,6 +183,6 @@ class BBReadResult(NetworkMessage):
         return bytes
 
     @property
-    def state(self) -> list[NetworkMessage]:
+    def state(self) -> list[NetworkMessage | SignedContent[NetworkMessage]]:
         return self.__state.copy()
 

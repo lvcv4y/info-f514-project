@@ -1,4 +1,4 @@
-from messages import SignableContent, Message
+from communication import SignableContent, Message
 from typing import Literal, override
 from math import log2, ceil
 
@@ -52,39 +52,6 @@ class CipheredVector(SignableContent):
     def __getitem__(self, i) -> tuple[int, int]:
         return self.__ciphered[i]
 
-
-class Signature(SignableContent):
-    """
-    Represents a signature.
-    """
-    def __init__(self, inner: bytes):
-        self.__inner = inner
-    
-    @override
-    def as_bytes(self) -> bytes:
-        return self.__inner
-
-
-class SignedContent[T: SignableContent](Message):
-    """
-    Signed data representation, with two fields:
-      - SignedContent.data (SignableContent): the inner data.
-      - SignedContent.signature  (Signature): the signature itself.
-    """
-    def __init__(self, data: T, signature: Signature):
-        self.__data = data
-        self.__signature = signature
-
-    @property
-    def signature(self) -> Signature:
-        return self.__signature
-
-    @property
-    def data(self) -> T:
-        return self.__data
-    
-    def as_bytes(self) -> bytes:
-        return self.__data.as_bytes() + self.__signature.as_bytes()
 
 class Vote(ClearVector):
     """

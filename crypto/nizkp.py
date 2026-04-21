@@ -5,13 +5,13 @@ NIZKPs abstract classes
 # Verification contexts
 from abc import ABC, abstractmethod
 
-from messages import SignableContent
+from communication import SignableContent
 from typing import Any
 from crypto.keys import AsymmetricCryptographicKey, VoteEncryptionKeys, SigningKeys, SignedContent
 from abc import ABC
 from typing import override, Literal, Any
 from exceptions import KeyNotPrivateError, CryptoError
-from messages import SignableContent
+from communication import SignableContent
 from math import log2, ceil
 import secrets
 import hashlib

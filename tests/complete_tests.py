@@ -5,6 +5,7 @@ from random import randint
 
 from authorities import PKI, ElectionAuthority
 from board import BulletinBoard
+from communication import BBReadResult, SignedContent
 from network import Network, NetworkPacket
 from tallier import Tallier
 from vote import Voter, Vote
@@ -31,7 +32,12 @@ def complete_normal_vote_test(
     bb = BulletinBoard()
 
     def logger(_: Network, pkt: NetworkPacket):
-        print(f"[-] Packet captured: src={pkt.src}, dst={pkt.dst}, msg={pkt.msg}")
+        data = type(pkt.msg).__name__
+        if isinstance(pkt.msg, BBReadResult):
+            data = "Length:" + str(len(pkt.msg.state))
+        if isinstance(pkt.msg, SignedContent):
+            data = f"SignedContent of type {type(pkt.msg.data).__name__}"
+        print(f"[-] Packet captured: src={type(pkt.src).__name__}, dst={type(pkt.dst).__name__}, msg={data}")
         return True, pkt
 
     network.add_tampering(logger)

@@ -8,7 +8,7 @@ from typing import Callable, TYPE_CHECKING, Optional
 
 from network import Network, NetworkSender
 from crypto.keys import SigningKeys
-from messages import StartElectionMessage, StopElectionMessage
+from communication import StartElectionMessage, StopElectionMessage
 # Cryptographic parameters (RFC 3526 – 2048-bit MODP group, safe prime)
 # https://datatracker.ietf.org/doc/html/rfc3526
 
@@ -73,7 +73,11 @@ class ElectionAuthority(NetworkSender):
         PKI().add(self.id, self.__keys.as_public())
 
     @property
-    def id(self):
+    def id(self) -> str:
+        return ElectionAuthority.ID()
+    
+    @staticmethod
+    def ID() -> str:
         return "ElectionAuthority"
 
     def register_voter(self, voter: "Voter"):  # Maybe passes the pubkey?
@@ -112,7 +116,7 @@ class ElectionAuthority(NetworkSender):
         # Use the cryptographic parameters defined for this election
         crypto_params = (_P, _Q, _G)
         message = StartElectionMessage(
-            self.id,
+            self,
             crypto_params,
             [v.id for v in self.__voters],
             [t.id for t in self.__talliers],
@@ -130,7 +134,7 @@ class ElectionAuthority(NetworkSender):
     def end_election(self):
         """Ends the election, following the paper protocol: send a signed "stop election" message."""
         self.network.send(
-            self.__keys.sign(StopElectionMessage(self.id)),
+            self.__keys.sign(StopElectionMessage(self)),
             self,  # ElectionAuthority does not need to listen anything ; at least for now.
             None,  # Broadcast
         )

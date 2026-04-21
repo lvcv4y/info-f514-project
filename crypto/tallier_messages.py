@@ -1,22 +1,23 @@
 from crypto.classes import ClearVector
 from crypto.keys import VoteEncryptionKeys
 from crypto.nizkp import TallierKeyShareNIZKP, TallierPartialDecryptionNIZKP
-from messages import SignableContent
+from communication import NetworkMessage, NetworkSender, SignableContent
 from typing import Literal, override
 from math import ceil, log2
 
 """
 Tallier Messages.
 """
-class TallierPartialKeyMessage(SignableContent):
+class TallierPartialKeyMessage(NetworkMessage):
     """
     Partial key share message sent by talliers. See paper for details.
     Note: tallier_id was added even though it is not specified in the paper.
     """
     BYTEORDER: Literal['big'] = 'big'
 
-    def __init__(self, tallier_id: str, pub_key: VoteEncryptionKeys, nizkp: TallierKeyShareNIZKP):
-        self.__tallier_id = tallier_id
+    def __init__(self, tallier: NetworkSender, pub_key: VoteEncryptionKeys, nizkp: TallierKeyShareNIZKP):
+        super().__init__(tallier)
+        self.__tallier_id = tallier.id
         self.__pub_key = pub_key
         self.__nizkp = nizkp
 
@@ -41,13 +42,13 @@ class TallierPartialKeyMessage(SignableContent):
         return tid + pkey + nizkp
 
 
-class TallierPartialDecryptionMessage(SignableContent):
+class TallierPartialDecryptionMessage(NetworkMessage):
     """
     Partial decryption message sent by tallier on election end. See paper for details.
     """
-    def __init__(self, tallier_id: str, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
-        super().__init__(tallier_id)
-        self.tallier_id = tallier_id
+    def __init__(self, sender: NetworkSender, partial_deciphered: ClearVector, nizkp: TallierPartialDecryptionNIZKP):
+        super().__init__(sender)
+        self.tallier_id = sender.id
         self.partial_deciphered = partial_deciphered
         self.nizkp = nizkp
 
