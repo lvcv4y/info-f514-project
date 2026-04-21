@@ -55,6 +55,17 @@ class BulletinBoard(NetworkClient):
     @override
     def on_receive(self, message: Message, src: NetworkSender):
         if isinstance(message, BBReadQuery) and isinstance(src, NetworkClient):
+            """
+            Example of malicious Bulletin board:
+            if src.id != "Judge":
+                content = self.__read()
+                removed = False
+                for message in content:
+                    if isinstance(message, SignedContent) and isinstance(message.data, Ballot) and not removed:
+                        removed = True
+                        content.remove(message)
+                self.__network.send(BBReadResult(content, self), self, src)
+            """
             self.__network.send(BBReadResult(self.__read(), self), self, src)
         elif not isinstance(message, BBReadResult) and (isinstance(message, NetworkMessage) or (isinstance(message, SignedContent) and isinstance(message.data, NetworkMessage))):
             self.__write(message)
