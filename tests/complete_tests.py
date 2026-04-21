@@ -37,7 +37,7 @@ def complete_normal_vote_test(
     network.add_tampering(logger)
 
     print("[*] Generate voters...")
-    voters = []
+    voters: list[Voter] = []
     for i in range(votes_n):
         v = tuple(randint(0, vote_range + 1) for _ in range(vote_size))
         print(f"[Vote{i}] {v}")

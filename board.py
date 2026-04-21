@@ -12,9 +12,9 @@ from typing import override
 from authorities import PKI, ElectionAuthority
 from complains import SafeChannel
 from crypto import SignedContent, TallierPartialDecryptionVerifContext, VoteEncryptionKeys, PubkeyVerificationContext, \
-    ClearVector
+    ClearVector, CipheredVector
 from exceptions import ResultComputeError
-from network import NetworkClient, Network, NetworkMessage
+from network import NetworkClient,NetworkSender, Network, NetworkMessage, Message
 from messages import BBReadQuery, BBReadResult, StartElectionMessage, TallierPartialDecryptionMessage, \
     StopElectionMessage, TallierPartialKeyMessage
 from vote import Ballot
@@ -25,7 +25,7 @@ class BulletinBoard(NetworkClient):
     Represent a (legit) bulletin board. It is actually a wrapper around a bulletin board state,
         which is just an append-only list of BulletinMessage.
     """
-    def __init__(self, network: Network = None, self_register_network: bool = True):
+    def __init__(self, network: Network | None = None, self_register_network: bool = True):
         super().__init__()
         self.__network = network if network is not None else Network()
 
@@ -35,11 +35,15 @@ class BulletinBoard(NetworkClient):
         self.__state: list[NetworkMessage] = []
     
     @override
-    def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
-        if isinstance(message, BBReadQuery):
+    def on_receive(self, message: Message, src: NetworkSender):
+        if isinstance(message, BBReadQuery) and isinstance(src, NetworkClient):
             self.__network.send(BBReadResult(self.__read()), self, src)
-        elif not isinstance(message, BBReadResult):
+        elif not isinstance(message, BBReadResult) and isinstance(message, NetworkMessage):
             self.__write(message)
+
+    @property
+    def id(self) -> str:
+        return "BulletinBoard"
 
     def __write(self, message: NetworkMessage):
         """
@@ -67,8 +71,8 @@ class BulletinBoard(NetworkClient):
         return self.__state.copy()
 
     @staticmethod
-    def compute_results(state: list[NetworkMessage], pki: PKI = None, auth: ElectionAuthority = None,
-                        complain_author: str = None) -> ClearVector:
+    def compute_results(state: list[NetworkMessage], pki: PKI | None = None, auth: ElectionAuthority | None = None,
+                        complain_author: str | None = None) -> ClearVector:
         """
         Given a state of P_BB, (try to) compute the election results.
 
@@ -96,13 +100,13 @@ class BulletinBoard(NetworkClient):
             auth = ElectionAuthority()
 
 
-        tallier_keys = {}
-        votes = []
+        tallier_keys: dict[str, VoteEncryptionKeys] = {}
+        votes: list[CipheredVector] = []
         partial_decrypt = []
         started = False
-        start_msg: StartElectionMessage = None
+        start_msg: StartElectionMessage | None = None
         ctaggr = None
-        vote_key = None
+        vote_key: VoteEncryptionKeys | None = None
 
         for msg in state:
             if not isinstance(msg, SignedContent):
@@ -129,6 +133,10 @@ class BulletinBoard(NetworkClient):
                         warn(f"Tallier {inner.tallier_id} has no signing key.")
                         continue
 
+                    if ctaggr is None:
+                        warn("Partial decryption message before any vote detected.")
+                        continue
+
                     if not k.verify_signature(msg):
                         warn("TallierPartialDecryptionMessage with wrong signature detected.")
                         continue
@@ -146,13 +154,15 @@ class BulletinBoard(NetworkClient):
                     warn("StopElectionMessage with wrong signature detected.")
                     continue
 
-                vote_key: VoteEncryptionKeys = reduce(lambda k1, k2: k2 * k1, tallier_keys.values(), None)
+                vote_key = reduce(lambda k1, k2: k2 * k1, tallier_keys.values(), None)
+                if(vote_key is None):
+                    raise ResultComputeError("Vote Encryption Key is None.")
                 ctaggr = vote_key.aggregate(votes)
                 started = False
                 continue
 
             if isinstance(inner, TallierPartialKeyMessage):
-                if not inner.tallier_id in start_msg.talliers:
+                if start_msg is not None and not inner.tallier_id in start_msg.talliers:
                     warn("Partial key with untrusted tallier spotted.")
                     continue
 
@@ -173,7 +183,7 @@ class BulletinBoard(NetworkClient):
                 tallier_keys[inner.tallier_id] = inner.pub_key
 
             elif isinstance(inner, Ballot):
-                if not inner.voter_id in start_msg.voters:
+                if start_msg is not None and not inner.voter_id in start_msg.voters:
                     warn("Not legit voter ballot spotted.")
                     continue
 

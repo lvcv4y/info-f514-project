@@ -4,9 +4,9 @@ Those actors are the only thing the voters trusts.
 
 Note: Voters actually have a trusted additional channel to report errors / detected frauds.
 """
-from typing import Callable, TYPE_CHECKING
+from typing import Callable, TYPE_CHECKING, Optional
 
-from network import Network
+from network import Network, NetworkSender
 from crypto import SigningKeys
 from messages import StartElectionMessage, StopElectionMessage
 # Cryptographic parameters (RFC 3526 – 2048-bit MODP group, safe prime)
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from vote import Voter, Vote
     from tallier import Tallier
 
-class ElectionAuthority:
+class ElectionAuthority(NetworkSender):
     """
     Responsible for the election organization.
     It will:
@@ -55,7 +55,7 @@ class ElectionAuthority:
             cls.instance = super().__new__(cls)
         return cls.instance
 
-    def __init__(self, vote_validator: Callable[["Vote"], bool] = None, network: "Network" = None):
+    def __init__(self, vote_validator: Optional[Callable[["Vote"], bool]] = None, network: Optional["Network"] = None):
         # Singleton pattern
         if getattr(self, "_initialized", False):
             return
@@ -74,7 +74,7 @@ class ElectionAuthority:
 
     @property
     def id(self):
-        return "ELECTION_AUTHORITY"
+        return "ElectionAuthority"
 
     def register_voter(self, voter: "Voter"):  # Maybe passes the pubkey?
         """
@@ -88,25 +88,6 @@ class ElectionAuthority:
 
         if voter not in self.__voters:
             self.__voters.append(voter)
-
-    def is_valid_voter(self, voter: "Voter") -> bool:
-        """
-        Determines whether the voter is legit: ie if the entity given has the right to vote in this election.
-
-        Args:
-            voter (Voter): Voter to check.
-
-        Returns:
-            bool: Whether the voter is legit.
-        """
-        # TODO I think unused. Check and delete.
-        return voter in self.__voters
-
-
-    def is_vote_valid(self, vote: "Vote") -> bool:
-        # TODO I think unused. Check and delete. Replace with policy.
-        # Normally, voters choose a vote in a given set. We'll mimic that with a function.
-        return self.__vote_validator(vote)
 
     def register_tallier(self, tallier: "Tallier"):
         """
@@ -141,7 +122,7 @@ class ElectionAuthority:
 
         self.network.send(
             signed,
-            None, # ElectionAuthority does not need to listen anything ; at least for now.
+            self, # ElectionAuthority does not need to listen anything ; at least for now.
             None, # Broadcast
         )
 
@@ -149,7 +130,7 @@ class ElectionAuthority:
         """Ends the election, following the paper protocol: send a signed "stop election" message."""
         self.network.send(
             self.__keys.sign(StopElectionMessage()),
-            None,  # ElectionAuthority does not need to listen anything ; at least for now.
+            self,  # ElectionAuthority does not need to listen anything ; at least for now.
             None,  # Broadcast
         )
 

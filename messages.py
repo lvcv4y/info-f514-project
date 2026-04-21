@@ -8,6 +8,7 @@ Most of those classes do not directly inherit from NetworkMessage, because they 
 Network abstract classes stays in the network file for convenience and clarity.
 Same for Vote and Ballot classes (which could be technically considered as network messages).
 """
+from abc import ABC
 from typing import override, Literal
 from math import ceil, log2
 
@@ -60,7 +61,7 @@ class StartElectionMessage(SignableContent):
 
     @property
     def vote_validator(self):
-        return self.vote_validator
+        return self.__vote_validator
 
 
 class StopElectionMessage(SignableContent):
@@ -142,3 +143,7 @@ class BBReadResult(NetworkMessage):
     def state(self) -> list[NetworkMessage]:
         return self.__state
 
+
+class Message(ABC):
+    """Network Message abstract class."""
+    pass
