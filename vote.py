@@ -5,12 +5,13 @@ from uuid import uuid4
 from typing import Callable, Optional, override
 from functools import reduce
 
-from complains import ComplainType, SafeChannel, Complain
+from judge.complains import ComplainType, Complain
+from judge.channel import SafeChannel
 from messages import SignableContent
 from crypto.classes import CipheredVector, SignedContent, Vote
 from crypto.nizkp import VoteNIZKP, VoteNIZKPBuildContext, PubkeyVerificationContext
 from crypto.keys import SigningKeys, VoteEncryptionKeys
-from crypto.messages import TallierPartialKeyMessage
+from crypto.tallier_messages import TallierPartialKeyMessage
 from network import NetworkClient, Network, NetworkSender
 from messages import Message
 from authorities import PKI, ElectionAuthority

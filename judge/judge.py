@@ -6,7 +6,7 @@ from board import BulletinBoard
 from crypto.keys import VoteEncryptionKeys
 from crypto.classes import SignedContent
 from crypto.nizkp import PubkeyVerificationContext, VoteNIZKPVerificationContext, TallierPartialDecryptionVerifContext
-from crypto.messages import TallierPartialDecryptionMessage, TallierPartialKeyMessage
+from crypto.tallier_messages import TallierPartialDecryptionMessage, TallierPartialKeyMessage
 from exceptions import ElectionRejected
 from messages import (
     BBReadQuery,
@@ -17,7 +17,7 @@ from messages import (
 from vote import Ballot
 from network import Network, NetworkPacket
 from messages import Message, NetworkMessage, NetworkSender, NetworkClient
-from complains import Complain
+from judge.complains import Complain
 
 
 @dataclass(frozen=True)

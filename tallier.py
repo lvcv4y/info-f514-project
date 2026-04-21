@@ -4,11 +4,12 @@ Tallier related objects and methods.
 from typing import Optional
 from uuid import uuid4
 
-from complains import Complain, ComplainType, SafeChannel
+from judge.complains import Complain, ComplainType
+from judge.channel import SafeChannel
 from crypto.classes import SignedContent, CipheredVector
 from crypto.keys import VoteEncryptionKeys, SigningKeys
 from crypto.nizkp import TallierKeyShareNIZKP, KeyBuildContext, TallierPartialDecryptionNIZKP, TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext, VoteNIZKPVerificationContext
-from crypto.messages import TallierPartialDecryptionMessage, TallierPartialKeyMessage
+from crypto.tallier_messages import TallierPartialDecryptionMessage, TallierPartialKeyMessage
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkSender
 from messages import Message, NetworkMessage
