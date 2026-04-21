@@ -7,7 +7,7 @@ from uuid import uuid4
 from complains import SafeChannel
 from crypto import CipheredVector, SigningKeys, SignedContent, VoteEncryptionKeys, \
     TallierKeyShareNIZKP, KeyBuildContext, TallierPartialDecryptionNIZKP, \
-    TallierPartialDecryptionNIZKPBuildContext
+    TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext, VoteNIZKPVerificationContext
 from exceptions import TallyingError
 from network import NetworkClient, Network, NetworkMessage, Message, NetworkSender
 from authorities import ElectionAuthority, PKI
@@ -35,7 +35,10 @@ class Tallier(NetworkClient):
         self.__bb_content: list[NetworkMessage] = []
 
         self.__valid_voters: list[str] = []
+        self.__valid_talliers : list[str] = []
+
         self.__keys = None
+        self.__vote_key: VoteEncryptionKeys | None = None
 
         self.__id = str(uuid4())
         self.__signing_keys = SigningKeys.generate()
@@ -52,18 +55,29 @@ class Tallier(NetworkClient):
 
     def on_receive(self, message: Message, src: NetworkSender):
         if isinstance(message, SignedContent):
+            inner = message.data
 
-            if isinstance(message.data, StartElectionMessage):
-                inner: StartElectionMessage = message.data
+            if isinstance(inner, StartElectionMessage):
                 auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
                 if auth_keys is not None and auth_keys.verify_signature(message):
                     # Check if we are indeed a valid tallier
                     if self.id not in inner.talliers:
-                        SafeChannel.complain(f"Tallier {self.id}", "I am not a valid tallier :(")
+                        SafeChannel.warn(f"Tallier {self.id}", "I am not a valid tallier :(")
 
                     # Generate keys
                     self.__keys: Optional[VoteEncryptionKeys] = VoteEncryptionKeys.generate_from(*inner.crypto_parameters)
                     self.__valid_voters = inner.voters
+                    self.__valid_talliers = inner.talliers
+
+                    if self.id not in self.__valid_talliers:
+                        SafeChannel.warn(f"Tallier-{self.id}", "I am not a valid Tallier")
+                    else:
+                        self.__valid_talliers.remove(self.id)
+                        if self.__vote_key is None:  # Check to prevent race conditions (who knows...)
+                            self.__vote_key = self.__keys.as_public()
+                        else:
+                            self.__vote_key *= self.__keys.as_public()
+
 
                     nizkp = TallierKeyShareNIZKP.generate(KeyBuildContext(self.__keys))
 
@@ -74,7 +88,7 @@ class Tallier(NetworkClient):
                         None  # Broadcast
                     )
 
-            if isinstance(message.data, StopElectionMessage):
+            elif isinstance(inner, StopElectionMessage):
                 auth_keys = self.__pki.get_key_from_client(ElectionAuthority().id)
 
                 if auth_keys is not None and auth_keys.verify_signature(message):
@@ -88,7 +102,21 @@ class Tallier(NetworkClient):
                         None  # Broadcast (for now)
                     )
 
-        if isinstance(message, BBReadResult):  # For now, unsigned (TODO ?)
+            elif isinstance(inner, TallierPartialKeyMessage):
+                if inner.tallier_id not in self.__valid_talliers:
+                    return
+
+                sign_key = self.__pki.get_key_from_client(inner.tallier_id)
+                if (sign_key is not None and sign_key.verify_signature(message) and
+                        inner.nizkp.verify(PubkeyVerificationContext(inner.pub_key))):
+                    self.__valid_talliers.remove(inner.tallier_id)
+
+                    if self.__vote_key is None:
+                        self.__vote_key = inner.pub_key
+                    else:
+                        self.__vote_key *= inner.pub_key
+
+        elif isinstance(message, BBReadResult):  # For now, unsigned (TODO ?)
             if not self.__start_tallying:
                 # We actually didn't ask this
                 return
@@ -109,6 +137,10 @@ class Tallier(NetworkClient):
 
         if(self.__keys is None):
             raise TallyingError("Tallier has not received the crypto parameters from the ElectionAuthority, cannot tally.")
+
+        if self.__vote_key is not None and len(self.__valid_talliers) > 0:
+            SafeChannel.warn(f"Tallier {self.id}", "Can't tally ; didn't finish retrieving voting key.")
+            return
 
         for msg in self.__bb_content:
             if not isinstance(msg, SignedContent):  # Any message we consider "valid" are signed
@@ -133,9 +165,10 @@ class Tallier(NetworkClient):
             ):
                 continue
 
-            # Verify NIZKP. TODO fix: VoteNIZKP wrongly use vote encryption key.
-            # if not ballot.nizkp.verify(VoteNIZKPVerificationContext(signing_key, ballot.vote_cipher)):
-            #     continue
+            # Verify NIZKP.
+            if not ballot.nizkp.verify(VoteNIZKPVerificationContext(self.__vote_key, ballot.vote_cipher, signing_key)):
+                SafeChannel.warn(f"Tallier-{self.id}", "A voter NIZKP couldn't be verified.")
+                continue
 
             # The voter ID is legit, the signature and NIZKP are verified.
 

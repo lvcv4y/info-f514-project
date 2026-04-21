@@ -118,7 +118,7 @@ class Voter(NetworkClient):
                     return
 
                 if self.id not in inner.voters:
-                    SafeChannel.complain(f"Voter {self.id}", "I am not a valid voter!")
+                    SafeChannel.warn(f"Voter {self.id}", "I am not a valid voter!")
                     return
 
                 self.__valid_talliers_ids = inner.talliers
@@ -163,8 +163,7 @@ class Voter(NetworkClient):
         vote = self.vote
         ciphered, random_vector = encryption_key.cipher(vote)
 
-        # TODO fix: VoteNIZKP wrongly use vote encryption key. Use signature key instead.
-        nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(encryption_key, vote, ciphered, random_vector))
+        nizkp = VoteNIZKP.generate(VoteNIZKPBuildContext(encryption_key, self.__keys, vote, ciphered, random_vector))
 
         ballot = Ballot(self.id, ciphered, nizkp)
 
