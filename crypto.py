@@ -7,16 +7,17 @@ Note: for now, signing and ciphering are not compatible: only clear content can 
 from abc import ABC, abstractmethod
 from functools import reduce
 from math import log2, ceil
-from typing import override, TYPE_CHECKING, Literal, Any, Self
+from typing import Optional, override, TYPE_CHECKING, Literal, Any, Self, cast
 import secrets
 import hashlib
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey, RSAPrivateKey
 
 from exceptions import KeyNotPrivateError, CryptoError
-from network import NetworkMessage
+from messages import Message
 
 if TYPE_CHECKING:
     from vote import Vote
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
 Content classes. Used to abstract the formats of data from their usage
 """
 
-class SignableContent(NetworkMessage):  # NetworkMessage is already abstract
+class SignableContent(Message):
     """
     General interface, represents any data that might be signed.
     Can be extended to allow a given class to be signed.
@@ -98,13 +99,13 @@ class Signature(SignableContent):
         return self.__inner
 
 
-class SignedContent(NetworkMessage):
+class SignedContent[T: SignableContent](Message):
     """
     Signed data representation, with two fields:
       - SignedContent.data (SignableContent): the inner data.
       - SignedContent.signature  (Signature): the signature itself.
     """
-    def __init__(self, data: SignableContent, signature: Signature):
+    def __init__(self, data: T, signature: Signature):
         self.__data = data
         self.__signature = signature
 
@@ -113,7 +114,7 @@ class SignedContent(NetworkMessage):
         return self.__signature
 
     @property
-    def data(self) -> SignableContent:
+    def data(self) -> T:
         return self.__data
 
 """
@@ -124,7 +125,7 @@ class AsymmetricCryptographicKey(ABC):
     """
     Abstract class that represents a pair of crypto keys.
     """
-    def __init__(self, pub, private):
+    def __init__(self, pub: Any, private: Optional[Any] = None):
         # This constructor should not be used. Keys object should be generated through child class methods.
         self.__pub = pub
         self.__private = private
@@ -152,7 +153,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
     """
     BYTEORDER: Literal['big'] = "big"
 
-    def __init__(self, pub, private, crypto_params = None):
+    def __init__(self, pub: int, private: Optional[int], crypto_params: Optional[tuple[int, int, int]] = None):
         super().__init__(pub, private)
         if crypto_params is None:
             raise CryptoError("Crypto parameters have to be provided")
@@ -177,7 +178,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         return VoteEncryptionKeys(self.public, None, self.__crypto_params)
 
     @staticmethod
-    def generate_from(p, q, g) -> "VoteEncryptionKeys":
+    def generate_from(p: int, q: int, g: int) -> VoteEncryptionKeys:
         """
         Generate a pair of ElGamal public-private keys.
         Args:
@@ -185,9 +186,6 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
             q: Prime order of subgroup
             g: Generator
         """
-        if not isinstance(p, int) or not isinstance(q, int) or not isinstance(g, int):
-            raise CryptoError("Crypto parameters aren't integers")
-        
         # Random sk
         sk = secrets.randbelow(q - 1) + 1
         # pk = g^x mod p
@@ -366,35 +364,38 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         assert 0 not in vect.unwrap()
         return ClearVector(tuple(pow(h, p-2, p) for h in vect.unwrap()))
 
-    def __vect_product(self, vec1: ClearVector | CipheredVector, vec2: ClearVector | CipheredVector):
+    def __vect_product(self, vec1: Optional[ClearVector | CipheredVector], vec2: Optional[ClearVector | CipheredVector]) -> ClearVector | CipheredVector:
         """
         Multiply two vectors, component by component, modulo p. Both must have the same type.
 
         Note: The modulo p is the reason why this method is here and not in the respective classes.
         """
-        if vec1 is None:
+        if vec1 is None and vec2 is not None:
             return vec2
-
-        if vec2 is None:
+        elif vec2 is None and vec1 is not None:
             return vec1
-
-        assert type(vec1) is type(vec2), "Both vectors must have the same type."
+        elif vec1 is None and vec2 is None:
+            raise ValueError("At least one of the two vectors must be not None.")
 
         p, _, __ = self.crypto_params
         if isinstance(vec1, ClearVector):
+            if not isinstance(vec2, ClearVector):
+                raise TypeError("Both vectors must have the same type.")
+
             return ClearVector(tuple(
                 (m1 * m2) % p
                 for m1, m2 in zip(vec1.unwrap(), vec2.unwrap())
             ))
-        elif isinstance(vec1, CipheredVector):
+        if isinstance(vec1, CipheredVector):
+            if not isinstance(vec2, CipheredVector):
+                raise TypeError("Both vectors must have the same type.")
+
             return CipheredVector(tuple(
                 ((h1[0] * h2[0]) % p, (h1[1] * h2[1]) % p)
                 for h1, h2 in zip(vec1.unwrap(), vec2.unwrap())
             ))
-        elif vec1 is None:
-            return None
-        else:
-            raise NotImplementedError(f"type {type(vec1)} is not (yet) implemented.")
+
+        raise NotImplementedError(f"type {type(vec1)} is not (yet) implemented.")
 
     def __final_product(self, ctaggr: CipheredVector, decipher_prod_inv: ClearVector) -> ClearVector:
         """
@@ -410,7 +411,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         p, _, __ = self.crypto_params
         return ClearVector(tuple((h[1] * pdsi) % p for h, pdsi in zip(ctaggr.unwrap(), decipher_prod_inv.unwrap())))
 
-    def aggregate[U: ClearVector | CipheredVector](self, vect_list: list[U]) -> U | None:
+    def aggregate[U: ClearVector | CipheredVector](self, vect_list: list[U]) -> U:
         """
         Homomorphically aggregate a list of vectors.
 
@@ -420,7 +421,14 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         Returns:
             ClearVector | CipheredVector: aggregate. Same type as the vectors given in argument.
         """
-        return reduce(self.__vect_product, vect_list, None)
+        if(len(vect_list) == 0):
+            raise ValueError("At least one vector must be given to aggregate.")
+
+        result = vect_list[0]
+        for vect in vect_list[1:]:
+            result = cast(U, self.__vect_product(result, vect))
+
+        return result
 
     def get_election_result(self, votes: list[CipheredVector], partial_deciphers: list[ClearVector]) -> ClearVector:
         """
@@ -461,7 +469,7 @@ class SigningKeys(AsymmetricCryptographicKey):
     RSA_KEY_SIZE = 2048
     EXP = 65537
 
-    def __init__(self, pub, private=None):
+    def __init__(self, pub: RSAPublicKey, private: Optional[RSAPrivateKey] =None):
         super().__init__(pub, private)
 
     @staticmethod
@@ -476,17 +484,14 @@ class SigningKeys(AsymmetricCryptographicKey):
         public_key = private_key.public_key()
         return SigningKeys(public_key, private_key)
 
-    def sign(self, content: SignableContent) -> SignedContent:
+    def sign[T: SignableContent](self, content: T) -> SignedContent[T]:
         """
         Sign the given content. The current key must be a private key.
         """
-        if not self.is_private():
-            raise KeyNotPrivateError()
-
         data = content.as_bytes()
 
         # Sign using the private key
-        signature_bytes = self.private.sign(
+        signature_bytes = self.private().sign(
             data,
             padding.PKCS1v15(),
             hashes.SHA256()

@@ -1,14 +1,15 @@
 """
 Tallier related objects and methods.
 """
+from typing import Optional
 from uuid import uuid4
 
 from complains import SafeChannel
-from crypto import SigningKeys, SignedContent, VoteEncryptionKeys, \
+from crypto import CipheredVector, SigningKeys, SignedContent, VoteEncryptionKeys, \
     TallierKeyShareNIZKP, KeyBuildContext, TallierPartialDecryptionNIZKP, \
     TallierPartialDecryptionNIZKPBuildContext, PubkeyVerificationContext, VoteNIZKPVerificationContext
 from exceptions import TallyingError
-from network import NetworkClient, Network, NetworkMessage
+from network import NetworkClient, Network, NetworkMessage, Message, NetworkSender
 from authorities import ElectionAuthority, PKI
 from messages import (StartElectionMessage, StopElectionMessage, TallierPartialKeyMessage,
                       TallierPartialDecryptionMessage, BBReadQuery, BBReadResult)
@@ -21,8 +22,8 @@ class Tallier(NetworkClient):
     """
 
     def __init__(self,
-                 network: Network = None,
-                 pki: PKI = None,
+                 network: Optional[Network] = None,
+                 pki: Optional[PKI] = None,
                  self_register_network: bool = True,
                  self_register_pki: bool = True
     ):
@@ -31,11 +32,9 @@ class Tallier(NetworkClient):
         self.__pki = PKI() if pki is None else pki
 
         self.__start_tallying = False
-        self.__bb_content = None
+        self.__bb_content: list[NetworkMessage] = []
 
-        self.__valid_voters: list[str] | None = None
-        self.__valid_talliers : list[str] = []
-
+        self.__valid_voters: list[str] = []
         self.__keys = None
         self.__vote_key: VoteEncryptionKeys | None = None
 
@@ -52,7 +51,7 @@ class Tallier(NetworkClient):
     def id(self) -> str:
         return self.__id
 
-    def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
+    def on_receive(self, message: Message, src: NetworkSender):
         if isinstance(message, SignedContent):
             inner = message.data
 
@@ -61,10 +60,10 @@ class Tallier(NetworkClient):
                 if auth_keys is not None and auth_keys.verify_signature(message):
                     # Check if we are indeed a valid tallier
                     if self.id not in inner.talliers:
-                        SafeChannel.warn(f"Tallier {self.id}", "I am not a valid tallier :(")
+                        SafeChannel.complain(f"Tallier {self.id}", "I am not a valid tallier :(")
 
                     # Generate keys
-                    self.__keys: VoteEncryptionKeys = VoteEncryptionKeys.generate_from(*inner.crypto_parameters)
+                    self.__keys: Optional[VoteEncryptionKeys] = VoteEncryptionKeys.generate_from(*inner.crypto_parameters)
                     self.__valid_voters = inner.voters
                     self.__valid_talliers = inner.talliers
 
@@ -132,7 +131,10 @@ class Tallier(NetworkClient):
         # Note: self.__bb_content contains the last received BB content. Might send another BBReadQuery if not complete.
 
         # First step: get valid votes
-        valid_votes = {}
+        valid_votes: dict[str, CipheredVector] = {}
+
+        if(self.__keys is None):
+            raise TallyingError("Tallier has not received the crypto parameters from the ElectionAuthority, cannot tally.")
 
         if self.__vote_key is not None and len(self.__valid_talliers) > 0:
             SafeChannel.warn(f"Tallier {self.id}", "Can't tally ; didn't finish retrieving voting key.")
@@ -184,8 +186,7 @@ class Tallier(NetworkClient):
             raise TallyingError("Missing votes.")
 
         # Aggregate, partial decipher and post.
-
-        aggregate = self.__keys.aggregate(valid_votes.values())
+        aggregate = self.__keys.aggregate(list(valid_votes.values()))
         partial_decipher = self.__keys.partial_decipher(aggregate)
 
         nizkp = TallierPartialDecryptionNIZKP.generate(TallierPartialDecryptionNIZKPBuildContext(
