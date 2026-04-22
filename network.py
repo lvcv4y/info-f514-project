@@ -1,27 +1,9 @@
 """
 The (untrusted) network-related objects.
 """
-from abc import ABC, abstractmethod
 from collections import deque
-from typing import Callable, Union
-
-
-class NetworkMessage(ABC):
-    """Network Message abstract class."""
-    pass
-
-
-class NetworkClient(ABC):
-    """
-    Network Client Interface.
-    This represents what the client will actually see on receive.
-    None of those arguments are trustworthy: the Network might have tampered, invented or blocked packets.
-    """
-    
-    @abstractmethod
-    def on_receive(self, message: NetworkMessage, src: "NetworkClient" = None):
-        pass
-
+from communication import Message, NetworkSender, NetworkClient
+from typing import Callable, Optional, Union
 
 class NetworkPacket:
     """
@@ -31,11 +13,11 @@ class NetworkPacket:
     
     These objects are immutable ; they are used to describe Network inner state and define logic.
     """
-    def __init__(self, msg: NetworkMessage, src: "NetworkClient" = None, dst: "NetworkClient" = None):
-        self.__src = src
-        self.__dst = dst
-        self.__msg = msg
-    
+    def __init__(self, msg: Message, src: NetworkSender, dst: Optional["NetworkClient"] = None):
+        self.__src: NetworkSender = src
+        self.__dst: Optional["NetworkClient"] = dst
+        self.__msg: Message = msg
+
     @property
     def src(self):
         return self.__src
@@ -47,7 +29,6 @@ class NetworkPacket:
     @property
     def msg(self):
         return self.__msg
-
 
 
 class Network:
@@ -69,11 +50,11 @@ class Network:
             return
         self._initialized = True
 
-        self.__clients = []
-        self.__packet_queue = deque()
+        self.__clients: list[NetworkClient] = []
+        self.__packet_queue: deque[NetworkPacket] = deque()
         self.__running = False
 
-        self.__tamperer = []
+        self.__tamperer: list[Callable[["Network", NetworkPacket], tuple[bool, Union[NetworkPacket, None]]]] = []
 
     def add_tampering(self, f: Callable[["Network", NetworkPacket], tuple[bool, Union[NetworkPacket, None]]]):
         """
@@ -112,11 +93,6 @@ class Network:
                     raise TypeError("The function signature is not correct: "
                                     "it must take a Network and a NetworkPacket as arguments.")
 
-                if (not isinstance(ret, tuple) or not len(ret) == 2 or not isinstance(ret[0], bool)
-                        or not isinstance(ret[1], (type(None), NetworkPacket))):
-                    raise TypeError("The function signature is not correct: "
-                                    "it must return a tuple (bool, Union[NetworkPacket, None]).")
-
                 b, pkt = ret
                 if not b or pkt is None:
                     break
@@ -137,12 +113,12 @@ class Network:
         self.__running = False  # Finished routing for now.
     
 
-    def send(self, message: NetworkMessage, src: NetworkClient | None, dst: NetworkClient | None):
+    def send(self, message: Message, src: NetworkSender, dst: NetworkClient | None):
         """
         Send packet (add packet to inner network queue).
 
         Args:
-            message (NetworkMessage): The message to send.
+            message (Message): The message to send.
             src (NetworkClient): The client source. Might be None. Shouldn't be "wrong".
             dst (NetworkClient): The client destination. None for broadcast.
         """
