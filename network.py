@@ -6,6 +6,23 @@ from collections import deque
 from typing import Callable, Union
 
 
+class NetworkMessage(ABC):
+    """Network Message abstract class."""
+    pass
+
+
+class NetworkClient(ABC):
+    """
+    Network Client Interface.
+    This represents what the client will actually see on receive.
+    None of those arguments are trustworthy: the Network might have tampered, invented or blocked packets.
+    """
+    
+    @abstractmethod
+    def on_receive(self, message: NetworkMessage, src: "NetworkClient" = None):
+        pass
+
+
 class NetworkPacket:
     """
     High-level Network Message wrapper. This represents how the network "sees" things.
@@ -30,24 +47,6 @@ class NetworkPacket:
     @property
     def msg(self):
         return self.__msg
-
-
-
-class NetworkMessage(ABC):
-    """Network Message abstract class."""
-    pass
-
-
-class NetworkClient(ABC):
-    """
-    Network Client Interface.
-    This represents what the client will actually see on receive.
-    None of those arguments are trustworthy: the Network might have tampered, invented or blocked packets.
-    """
-    
-    @abstractmethod
-    def on_receive(self, message: NetworkMessage, src: NetworkClient = None):
-        pass
 
 
 
@@ -126,8 +125,10 @@ class Network:
                 continue
 
             if pkt.dst is None:  # Broadcast
-                for client in self.__clients:  # Maybe restricts to BB?
-                    client.on_receive(pkt.msg, pkt.src)
+                for client in self.__clients:
+                    if client is not pkt.src:
+                        client.on_receive(pkt.msg, pkt.src)
+
             elif pkt.dst in self.__clients:  # Registered destination
                 # This condition is weird because it is not an actual (async) network.
                 # In reality, "pkt.dst" wouldn't be enough to actually send a packet to the right destination.

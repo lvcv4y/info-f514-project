@@ -7,7 +7,7 @@ Note: for now, signing and ciphering are not compatible: only clear content can 
 from abc import ABC, abstractmethod
 from functools import reduce
 from math import log2, ceil
-from typing import override, TYPE_CHECKING, Literal, Any
+from typing import override, TYPE_CHECKING, Literal, Any, Self
 import secrets
 import hashlib
 
@@ -142,7 +142,7 @@ class AsymmetricCryptographicKey(ABC):
     def is_private(self) -> bool:
         return self.__private is not None
 
-    def as_public(self) -> bool:
+    def as_public(self) -> Self:
         return self.__class__(self.__pub, None)
 
 
@@ -172,12 +172,12 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         return self.__crypto_params
 
     @override
-    def as_public(self) -> VoteEncryptionKeys:
+    def as_public(self) -> "VoteEncryptionKeys":
         """Return a public-only version of this key, preserving crypto parameters."""
         return VoteEncryptionKeys(self.public, None, self.__crypto_params)
 
     @staticmethod
-    def generate_from(p, q, g) -> VoteEncryptionKeys:
+    def generate_from(p, q, g) -> "VoteEncryptionKeys":
         """
         Generate a pair of ElGamal public-private keys.
         Args:
@@ -195,7 +195,7 @@ class VoteEncryptionKeys(AsymmetricCryptographicKey):
         return VoteEncryptionKeys(pk, sk, (p, q, g))
 
     @staticmethod
-    def product(k1: VoteEncryptionKeys, k2: VoteEncryptionKeys) -> VoteEncryptionKeys:
+    def product(k1: "VoteEncryptionKeys", k2: "VoteEncryptionKeys") -> "VoteEncryptionKeys":
         """
         Compute the product of two public keys (as ElGamal exponential is homomorphic by *).
         """
@@ -607,19 +607,21 @@ class PubkeyVerificationContext(VerificationContext):
 # Vote proofs knowledge, correctness and validity of a vote. π_Enc
 
 class VoteNIZKPBuildContext(BuildContext):
-    def __init__(self, key: VoteEncryptionKeys, vote: "Vote", ciphered: CipheredVector, random_vector: tuple[int, ...]):
+    def __init__(self, key: VoteEncryptionKeys, signing_key: SigningKeys, vote: "Vote", ciphered: CipheredVector, random_vector: tuple[int, ...]):
         super().__init__()
         self.key = key  # Do not inherit KeyBuildContext: the key is not private.
+        self.signing_key = signing_key
         self.vote = vote
         self.ciphered = ciphered
         self.random = random_vector
 
 
 class VoteNIZKPVerificationContext(VerificationContext):
-    def __init__(self, key: VoteEncryptionKeys, ciphered: CipheredVector):
+    def __init__(self, key: VoteEncryptionKeys, ciphered: CipheredVector, voter_pubkey: SigningKeys):
         super().__init__()
         self.key = key
         self.ciphered = ciphered
+        self.voter_pubkey = voter_pubkey
 
 
 """
@@ -628,8 +630,32 @@ Chaum-Pedersen on each component:
         - ct[j][0] = g^{r_j}
         - ct[j][1] = g^{v[j]} · pk^{r_j}
 """
+
 class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
     BYTEORDER: Literal['big'] = 'big'
+
+    class InnerSignableContent(SignableContent):
+        """
+        Because the proof uses signature to certify voter's identity, we define an inner class to use
+          the SigningKeys methods.
+        """
+        def __init__(self, t, s0, s1):
+            self.__inner_tuple = (t, s0, s1)
+
+        def unwrap(self):
+            return self.__inner_tuple
+
+        def as_bytes(self) -> bytes:
+            t, s0, s1 = self.unwrap()
+            return (
+                    b''.join(
+                        (t0.to_bytes(ceil(log2(t0)), VoteNIZKP.BYTEORDER) +
+                         t1.to_bytes(ceil(log2(t1)), VoteNIZKP.BYTEORDER))
+                        for t0, t1 in t
+                    )
+                    + b''.join(s0_j.to_bytes(ceil(log2(s0_j)), VoteNIZKP.BYTEORDER) for s0_j in s0)
+                    + b''.join(s1_j.to_bytes(ceil(log2(s1_j)), VoteNIZKP.BYTEORDER) for s1_j in s1)
+            )
 
     @override
     @staticmethod
@@ -667,9 +693,10 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
         s0 = [(a0[j] + c * ctx.random[j]) % q for j in range(ncandidates)]
         s1 = [(a1[j] + c * ctx.vote[j]) % q for j in range(ncandidates)]
         # Step 4
-        proof = (t, s0, s1)
 
-        return VoteNIZKP(proof)
+        inner = VoteNIZKP.InnerSignableContent(t, s0, s1)
+        signed_inner = ctx.signing_key.sign(inner)
+        return VoteNIZKP(signed_inner)
 
     @override
     def verify(self, ctx: VoteNIZKPVerificationContext) -> bool:
@@ -683,11 +710,17 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
         key = ctx.key
         if not isinstance(key, VoteEncryptionKeys):
             raise CryptoError("VoteNIZKP requires VoteEncryptionKeys")
-        p, q, g = key.crypto_params
+        p, _, g = key.crypto_params
         pk = key.public
         ncandidates = len(ctx.ciphered.unwrap())
         # Step 1
-        t, s0, s1 = self.unwrap()
+        inner: SignedContent = self.unwrap()
+
+        # Verify voter signature
+        if not ctx.voter_pubkey.verify_signature(inner):
+            return False
+
+        t, s0, s1 = inner.data.unwrap()
         # Step 2
         c_input = (
             f"{g}{pk}"
@@ -706,13 +739,8 @@ class VoteNIZKP(NIZKP[VoteNIZKPBuildContext, VoteNIZKPVerificationContext]):
 
     @override
     def as_bytes(self) -> bytes:
-        t, s0, s1 = self.unwrap()
-        return (
-            b''.join((t0.to_bytes(ceil(log2(t0)), VoteNIZKP.BYTEORDER) + t1.to_bytes(ceil(log2(t1)), VoteNIZKP.BYTEORDER)) for t0, t1 in t) 
-            + b''.join(s0_j.to_bytes(ceil(log2(s0_j)), VoteNIZKP.BYTEORDER) for s0_j in s0 ) 
-            + b''.join(s1_j.to_bytes(ceil(log2(s1_j)), VoteNIZKP.BYTEORDER) for s1_j in s1))
-
-
+        inner: SignedContent = self.unwrap()
+        return inner.data.as_bytes() + inner.signature.as_bytes()
 
 # Tallier Key Share: that's only a key-pair NIZKP π_KeyShareGen
 
